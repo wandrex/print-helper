@@ -1,0 +1,299 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../admin/adminBottombar/admin_bottombar.dart';
+import '../admin/client/bottombar/client_bottombar.dart';
+import '../admin/customers/bottombar/cust_bottombar.dart';
+import '../admin/staff/bottombar/staff_bottombar.dart';
+import '../auth/login_screen.dart';
+import '../models/auth_models.dart';
+import '../services/api_routes.dart';
+import '../services/api_service.dart';
+import '../services/helpers.dart';
+import '../widgets/loaders.dart';
+import '../widgets/toasts.dart';
+
+class AuthPro extends ChangeNotifier {
+  Map<String, String> get headers => {'Content-type': 'application/json'};
+  int? custClientId;
+  UserModel? user;
+  String token = "";
+  Future<bool> loginUser({
+    required String email,
+    required String password,
+    required BuildContext ctx,
+  }) async {
+    Loaders.show();
+    try {
+      final data = await ApiService().postDataToApi(
+        api: ApiRoutes.login,
+        payload: {"username": email, "password": password},
+      );
+      debugPrint("LOGIN RESPONSE: $data");
+      if (data["success"] == true) {
+        final loginModel = LoginResponseModel.fromJson(data);
+        await saveUserData(loginModel);
+        user = loginModel.user;
+        token = loginModel.token;
+        final prefs = await SharedPreferences.getInstance();
+        prefs.setString("token", loginModel.token);
+        prefs.setString("role_name", loginModel.user.roleName);
+        prefs.setString("cust_client_id", user!.custClientId.toString());
+        prefs.setInt("customer_id", user!.customerId);
+        debugPrint("Customer Client ID: ${user!.custClientId}");
+        debugPrint("Customer ID: ${user!.customerId}");
+        notifyListeners();
+        showToast(message: "Login successful");
+        return true;
+      } else {
+        showToast(message: data["message"] ?? "Invalid credentials");
+        return false;
+      }
+    } catch (e) {
+      debugPrint("LOGIN ERROR: $e");
+      showToast(message: "Something went wrong");
+      return false;
+    } finally {
+      Loaders.hide();
+    }
+  }
+
+  Future<void> switchUser({
+    required int userId,
+    required dynamic context,
+  }) async {
+    Loaders.show();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString("token") ?? "";
+      final data = await ApiService().postDataToApi(
+        api: "${ApiRoutes.switchUser}/$userId",
+        headers: {"Authorization": "Bearer $token"},
+      );
+      debugPrint("SWITCH USER RESPONSE: $data");
+      if (data["success"] == true) {
+        final user = UserModel.fromJson(data["data"]["user"]);
+        final token = data["data"]["token"];
+        this.user = user;
+        this.token = token;
+        debugPrint("USER clientId: ${user.custClientId}");
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString("token", token);
+        await prefs.setString("role_name", user.roleName);
+        await prefs.setString("user", jsonEncode(user.toJson()));
+        await prefs.setInt("cust_client_id", user.custClientId);
+        notifyListeners();
+        _navigateByRole(user.roleName, context);
+      } else {
+        showToast(message: data["message"] ?? "Switch failed");
+      }
+    } catch (e) {
+      debugPrint("SWITCH USER ERROR: $e");
+      showToast(message: "Something went wrong");
+    } finally {
+      Loaders.hide();
+    }
+  }
+
+  Future<void> loadUserFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final userStr = prefs.getString("user");
+    final savedToken = prefs.getString("token");
+    int? savedCustClientId;
+    final rawCustId = prefs.get("cust_client_id");
+    if (rawCustId is int) {
+      savedCustClientId = rawCustId;
+    } else if (rawCustId is String) {
+      savedCustClientId = int.tryParse(rawCustId);
+    }
+    if (userStr != null && savedToken != null) {
+      user = UserModel.fromJson(jsonDecode(userStr));
+      token = savedToken;
+      custClientId = savedCustClientId;
+      notifyListeners();
+    }
+  }
+
+  Future<void> saveUserData(LoginResponseModel login) async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString("user", jsonEncode(login.user.toJson()));
+    await prefs.setString("token", login.token);
+    await prefs.setString("token_type", login.tokenType);
+    await prefs.setInt("user_id", login.user.id);
+    await prefs.setString("name", login.user.name);
+    await prefs.setString("last_name", login.user.lastName);
+    await prefs.setString("email", login.user.email);
+    await prefs.setString("role_name", login.user.roleName);
+    await prefs.setString("phone", login.user.phone);
+    await prefs.setString("image", login.user.image.toString());
+  }
+
+  void _navigateByRole(String? role, BuildContext context) {
+    switch (role) {
+      case "ADMIN":
+        navTo(
+          context: context,
+          page: AdminBottomBar(pageNum: 0),
+          removeUntil: true,
+        );
+        break;
+      case "CONTACT":
+        navTo(
+          context: context,
+          page: ClientBottomBar(pageNum: 0),
+          removeUntil: true,
+        );
+        break;
+      case "STAFF":
+        navTo(
+          context: context,
+          page: StaffBottomBar(pageNum: 0),
+          removeUntil: true,
+        );
+        break;
+      case "CUSTOMER":
+        navTo(
+          context: context,
+          page: CustBottomBar(pageNum: 0),
+          removeUntil: true,
+        );
+        break;
+      default:
+        navTo(context: context, page: const LoginScreen(), removeUntil: true);
+    }
+  }
+
+  Future<void> logout(dynamic context) async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedToken = prefs.getString("token") ?? "";
+    Loaders.show();
+    try {
+      final data = await ApiService().postDataToApi(
+        api: ApiRoutes.logout,
+        headers: {"Authorization": "Bearer $storedToken"},
+      );
+      if (data["success"] == true && data["message"] == 'Logout successful') {
+        showToast(message: data["message"] ?? "Logout successful");
+      } else {
+        showToast(message: data["message"]);
+      }
+    } catch (e) {
+      debugPrint("LOGOUT API ERROR: $e");
+    }
+    Loaders.hide();
+    await prefs.remove("token");
+    await prefs.remove("role_name");
+    await prefs.remove("user_id");
+    await prefs.remove("name");
+    await prefs.remove("email");
+    await prefs.remove("customer_id");
+    await prefs.remove("cust_client_id");
+    user = null;
+    token = "";
+    notifyListeners();
+    navTo(context: context, page: const LoginScreen(), removeUntil: true);
+  }
+
+  String forgetMail = "";
+  Future<bool> forgetPassword({
+    required String email,
+    required dynamic context,
+  }) async {
+    try {
+      Loaders.show();
+      final data = await ApiService().postDataToApi(
+        api: 'auth/forgot-password',
+        payload: {"email": email},
+      );
+      debugPrint('forgetPassword response: $data');
+      final bool isSuccess =
+          data['success'] == true ||
+          data['message'] == "OTP has been sent to your email address.";
+      if (isSuccess) {
+        forgetMail = email;
+        showToast(message: data["message"]);
+        return true;
+      } else {
+        showToast(message: data["message"] ?? 'Something went wrong');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('FromForgetPassword error: $e');
+      showToast(message: 'Something went wrong');
+      return false;
+    } finally {
+      Loaders.hide();
+      notifyListeners();
+    }
+  }
+
+  bool validateOtp = false;
+  String resetToken = '';
+  Future<bool> validateOtpApi({
+    required String email,
+    required BuildContext context,
+    required String otp,
+  }) async {
+    bool isValid = false;
+    try {
+      Loaders.show();
+      validateOtp = true;
+      notifyListeners();
+      var data = await ApiService().postDataToApi(
+        api: 'auth/verify-otp?',
+        payload: {"email": email, "otp": otp},
+      );
+      debugPrint('validateOtpApi Response: $data');
+      if (data['message'] ==
+              "OTP verified successfully. You can now reset your password." &&
+          data['success'] == true) {
+        isValid = true;
+        showToast(message: "Otp Verified");
+      } else {
+        showToast(message: data["message"]);
+      }
+    } catch (e) {
+      debugPrint('validateOtpApi Error: $e');
+      showToast(message: "Something went wrong, please try again");
+    } finally {
+      validateOtp = false;
+      Loaders.hide();
+      notifyListeners();
+    }
+    return isValid;
+  }
+
+  Future<bool> resetPass({
+    required String password,
+    required String otp,
+    required BuildContext context,
+  }) async {
+    bool isVerify = false;
+    try {
+      Loaders.show();
+      var data = await ApiService().postDataToApi(
+        api: 'auth/reset-password?',
+        payload: {
+          "otp": otp,
+          "password": password,
+          "password_confirmation": password,
+        },
+      );
+      debugPrint('resetPass Response: $data');
+      if (data['message'] == "Password has been reset successfully." &&
+          data['success'] == true) {
+        isVerify = true;
+      } else {
+        showToast(message: data["message"]);
+      }
+    } catch (e) {
+      debugPrint('resetPass Error: $e');
+      showToast(message: "Something went wrong, please try again");
+    } finally {
+      Loaders.hide();
+    }
+    return isVerify;
+  }
+}
