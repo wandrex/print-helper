@@ -167,7 +167,7 @@ class ChatLatestMessage {
 class ChatMessage {
   final int id;
   final int conversationId;
-  final int senderId;
+  final int? senderId;
   final String message;
 
   final String type; // text | image | audio
@@ -187,7 +187,7 @@ class ChatMessage {
   ChatMessage({
     required this.id,
     required this.conversationId,
-    required this.senderId,
+    this.senderId,
     required this.message,
     required this.createdAt,
     required this.isMe,
@@ -203,14 +203,18 @@ class ChatMessage {
   });
   factory ChatMessage.fromJson(Map<String, dynamic> json, int currentUserId) {
     final user = json['user'];
+    final userId = user != null ? user['id'] : json['user_id'];
+
     return ChatMessage(
       id: json['id'],
       conversationId: json['conversation_id'],
-      senderId: json['user_id'],
+      senderId: userId,
       message: json['message'] ?? '',
       createdAt: DateTime.parse(json['created_at']),
-      isMe: json['user_id'] == currentUserId,
-      senderName: user != null ? "${user['name']} ${user['last_name']}" : null,
+      isMe: userId != null && userId == currentUserId,
+      senderName: user != null
+          ? "${user['name'] ?? ''} ${user['last_name'] ?? ''}".trim()
+          : null,
       senderAvatar: user != null ? user['image'] : null,
       isRead: json['is_read'],
       isDelivered: json['is_delivered'],

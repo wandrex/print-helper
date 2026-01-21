@@ -30,7 +30,7 @@ class _ForwardMessageSheetState extends State<ForwardMessageSheet> {
     // Using addPostFrameCallback ensures we don't trigger updates during build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<ChatPro>().clearSearch();
+        context.read<ChatPro>().clearUserSearch();
       }
     });
     super.dispose();
@@ -220,7 +220,7 @@ class _ForwardMessageSheetState extends State<ForwardMessageSheet> {
         );
       }
       if (mounted) {
-        pro.clearSearch();
+        pro.clearUserSearch();
         Navigator.pop(context); // Close sheet
       }
     } finally {

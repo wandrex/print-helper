@@ -21,9 +21,10 @@ class VoiceAudioManager {
     // Listen for completion to reset state
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
-        _player.stop();
+        // Reset to beginning but keep the current path so it can replay
+        _player.pause();
         _player.seek(Duration.zero);
-        _currentPath = null;
+        // Don't set _currentPath to null - keep it so replay works
       }
     });
   }
@@ -32,6 +33,11 @@ class VoiceAudioManager {
     try {
       // 1. If playing the SAME file, just resume
       if (_currentPath == path) {
+        // If at the end, seek to start before playing
+        if (_player.processingState == ProcessingState.completed ||
+            _player.position == _player.duration) {
+          await _player.seek(Duration.zero);
+        }
         await _player.play();
         return;
       }

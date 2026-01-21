@@ -46,10 +46,14 @@ class _ChatScreenState extends State<ChatScreen> {
   double _cancelSliderOffset = 0.0;
   ChatMessage? _editingMessage;
   final _messageCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
   bool isSmsSelected = false;
   String? currentVisibleDate;
   bool _showEmojiPicker = false;
   final FocusNode _focusNode = FocusNode();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearchMode = false;
+  Timer? _searchDebounce;
   OverlayEntry? _groupOverlay;
   String selectedSmsNumber = "(323) 000-0000";
   final _scrollCtrl = ScrollController();
@@ -164,10 +168,19 @@ class _ChatScreenState extends State<ChatScreen> {
       _chatPro.disconnectConversationSocket();
     }
     _chatPro.isChatScreenOpen = false;
+
+    // Clear search after frame to avoid notifyListeners during dispose
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _chatPro.clearSearch();
+    });
+
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     _messageCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     _recordTimer?.cancel();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -214,13 +227,20 @@ class _ChatScreenState extends State<ChatScreen> {
             builder: (context, pro, _) {
               return Column(
                 children: [
+                  // Search bar
+                  if (_isSearchMode) _buildSearchBar(context),
                   Expanded(
                     child: Consumer<ChatPro>(
                       builder: (context, pro, _) {
                         final loadMore = pro.isLoadingMore;
+                        final displayMessages = _isSearchMode && pro.isSearching
+                            ? pro.messageSearchResults
+                            : pro.messages;
+                        final isSearchView = _isSearchMode && pro.isSearching;
+
                         return ListView.builder(
                           controller: _scrollCtrl,
-                          reverse: true,
+                          reverse: !isSearchView,
                           physics: const BouncingScrollPhysics(),
                           padding: EdgeInsets.fromLTRB(
                             12.w,
@@ -230,41 +250,55 @@ class _ChatScreenState extends State<ChatScreen> {
                                 MediaQuery.of(context).viewInsets.bottom +
                                 2,
                           ),
-                          itemCount: pro.messages.length + (loadMore ? 1 : 0),
+                          itemCount:
+                              displayMessages.length +
+                              (loadMore && !isSearchView ? 1 : 0),
                           itemBuilder: (context, index) {
                             /// 🔄 Loader appears at TOP (because reverse = true)
-                            if (loadMore && index == pro.messages.length) {
+                            if (loadMore &&
+                                !isSearchView &&
+                                index == displayMessages.length) {
                               return Padding(
                                 padding: EdgeInsets.symmetric(vertical: 10),
                                 child: Center(child: showLoader()),
                               );
                             }
-                            if (index >= pro.messages.length) {
+                            if (index >= displayMessages.length) {
                               return const SizedBox.shrink();
                             }
-                            final msg = pro.messages[index];
+                            final msg = displayMessages[index];
+
                             bool showHeader = false;
-                            final isLast = index == pro.messages.length - 1;
-                            if (isLast) {
-                              showHeader = true;
-                            } else {
-                              final nextMsg = pro.messages[index + 1];
-                              final currDate = DateTime(
-                                msg.createdAt.year,
-                                msg.createdAt.month,
-                                msg.createdAt.day,
-                              );
-                              final nextDate = DateTime(
-                                nextMsg.createdAt.year,
-                                nextMsg.createdAt.month,
-                                nextMsg.createdAt.day,
-                              );
-                              if (currDate != nextDate) showHeader = true;
+                            final isLast = index == displayMessages.length - 1;
+
+                            if (!isSearchView) {
+                              if (isLast) {
+                                showHeader = true;
+                              } else {
+                                final nextMsg = displayMessages[index + 1];
+                                final currDate = DateTime(
+                                  msg.createdAt.year,
+                                  msg.createdAt.month,
+                                  msg.createdAt.day,
+                                );
+                                final nextDate = DateTime(
+                                  nextMsg.createdAt.year,
+                                  nextMsg.createdAt.month,
+                                  nextMsg.createdAt.day,
+                                );
+                                if (currDate != nextDate) showHeader = true;
+                              }
                             }
+
                             return Column(
                               children: [
                                 if (showHeader) _dateHeader(msg.createdAt),
-                                _messageRow(msg),
+                                _messageRow(
+                                  msg,
+                                  highlightQuery: isSearchView
+                                      ? pro.searchQuery
+                                      : null,
+                                ),
                               ],
                             );
                           },
@@ -959,19 +993,32 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: ImageIcon(
             AssetImage(Paths.call),
             color: AppColors.black,
-            size: 23,
+            size: 20,
           ),
           onPressed: () {},
         ),
         _groupInfoAction(),
         IconButton(
           icon: Icon(
-            CupertinoIcons.search,
+            _isSearchMode ? CupertinoIcons.search : CupertinoIcons.search,
             color: AppColors.black.withValues(alpha: 0.8),
-            size: 29,
+            size: 25,
             weight: 400,
           ),
-          onPressed: () {},
+          onPressed: () {
+            setState(() {
+              _isSearchMode = !_isSearchMode;
+              if (!_isSearchMode) {
+                _searchCtrl.clear();
+                getChatPro(context).clearSearch();
+              } else {
+                // Focus search field when opening
+                Future.delayed(Duration(milliseconds: 100), () {
+                  _searchFocusNode.requestFocus();
+                });
+              }
+            });
+          },
         ),
         Spacers.sbw5(),
       ],
@@ -1005,7 +1052,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _messageRow(ChatMessage msg) {
+  Widget _messageRow(ChatMessage msg, {String? highlightQuery}) {
     return Align(
       alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Row(
@@ -1034,7 +1081,7 @@ class _ChatScreenState extends State<ChatScreen> {
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.75,
               ),
-              child: _bubble(msg),
+              child: _bubble(msg, highlightQuery: highlightQuery),
             ),
           ),
           Builder(
@@ -1131,7 +1178,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _bubble(ChatMessage msg) {
+  Widget _bubble(ChatMessage msg, {String? highlightQuery}) {
     return Container(
       margin: EdgeInsets.only(bottom: 10.h),
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
@@ -1159,14 +1206,16 @@ class _ChatScreenState extends State<ChatScreen> {
               path: msg.audioUrl!,
               duration: msg.audioDuration ?? 0,
               isMe: msg.isMe,
-            ),
-          if (msg.type != 'voice')
-            TextWidget(
-              text: msg.message,
-              fontSize: 13,
-              color: Colors.black,
-              fontWeight: FontWeight.w400,
-            ),
+            )
+          else
+            highlightQuery != null && highlightQuery.isNotEmpty
+                ? _buildHighlightedText(msg.message, highlightQuery, msg.isMe)
+                : TextWidget(
+                    text: msg.message,
+                    fontSize: 13,
+                    color: Colors.black,
+                    fontWeight: FontWeight.w400,
+                  ),
           SizedBox(height: 4.h),
           // Time + ticks
           _metaRow(msg),
@@ -1363,5 +1412,162 @@ class _ChatScreenState extends State<ChatScreen> {
     if (diff == 1) return "Yesterday";
     // Else: Format like WhatsApp
     return DateFormat("d MMM yyyy").format(dt);
+  }
+
+  /// ---------------- SEARCH UI METHODS ----------------
+  Widget _buildSearchBar(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 40.h,
+              decoration: BoxDecoration(
+                color: AppColors.fill,
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+              child: TextField(
+                controller: _searchCtrl,
+                focusNode: _searchFocusNode,
+                onChanged: (query) {
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(Duration(milliseconds: 500), () {
+                    if (widget.conversationId != null) {
+                      final authPro = getAuthPro(context);
+                      getChatPro(context).searchMessages(
+                        conversationId: widget.conversationId.toString(),
+                        query: query,
+                        currentUserId: authPro.user!.id,
+                      );
+                    }
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: 'Search messages...',
+                  hintStyle: TextStyle(color: AppColors.hint, fontSize: 14.sp),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12.w,
+                    vertical: 10.h,
+                  ),
+                  prefixIcon: Icon(
+                    CupertinoIcons.search,
+                    color: AppColors.grey,
+                    size: 20,
+                  ),
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(
+                            Icons.clear,
+                            size: 20,
+                            color: AppColors.grey,
+                          ),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            getChatPro(context).clearSearch();
+                          },
+                        )
+                      : null,
+                ),
+                style: TextStyle(fontSize: 14.sp),
+              ),
+            ),
+          ),
+          Consumer<ChatPro>(
+            builder: (context, pro, _) {
+              if (!pro.isSearching || pro.searchTotalResults == 0) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: EdgeInsets.only(left: 12.w),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 10.w,
+                    vertical: 6.h,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12.r),
+                  ),
+                  child: TextWidget(
+                    text: '${pro.searchTotalResults}',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.black,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHighlightedText(String text, String query, bool isMe) {
+    if (query.isEmpty) {
+      return TextWidget(
+        text: text,
+        fontSize: 13,
+        color: AppColors.black,
+        fontWeight: FontWeight.w400,
+      );
+    }
+
+    final lowerText = text.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final matches = <TextSpan>[];
+    int lastMatchEnd = 0;
+
+    int index = lowerText.indexOf(lowerQuery);
+    while (index != -1) {
+      // Add text before match
+      if (index > lastMatchEnd) {
+        matches.add(
+          TextSpan(
+            text: text.substring(lastMatchEnd, index),
+            style: TextStyle(
+              fontSize: 13.sp,
+              color: AppColors.black,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        );
+      }
+
+      // Add highlighted match
+      matches.add(
+        TextSpan(
+          text: text.substring(index, index + query.length),
+          style: TextStyle(
+            fontSize: 13.sp,
+            fontWeight: FontWeight.w700,
+            color: AppColors.black,
+            backgroundColor: AppColors.secondary.withValues(alpha: 0.5),
+          ),
+        ),
+      );
+
+      lastMatchEnd = index + query.length;
+      index = lowerText.indexOf(lowerQuery, lastMatchEnd);
+    }
+
+    // Add remaining text
+    if (lastMatchEnd < text.length) {
+      matches.add(
+        TextSpan(
+          text: text.substring(lastMatchEnd),
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: AppColors.black,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      );
+    }
+
+    return RichText(text: TextSpan(children: matches));
   }
 }

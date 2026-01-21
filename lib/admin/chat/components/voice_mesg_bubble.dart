@@ -79,13 +79,15 @@ class _VoiceMessageBubbleUIState extends State<VoiceMessageBubbleUI>
     _playerStateSub?.cancel();
     _playerPositionSub?.cancel();
     if (_isReady) {
-      // Suppress all exceptions during disposal to prevent codec crashes
-      try {
-        _waveController.dispose();
-      } catch (e) {
-        // Ignore ALL errors including "codec is released already"
-        // These can happen when the native codec is released before Dart cleanup
-      }
+      // Suppress platform exceptions during dispose (codec release)
+      runZonedGuarded(
+        () {
+          _waveController.dispose();
+        },
+        (e, st) {
+          // Swallow codec release errors quietly
+        },
+      );
     }
     super.dispose();
   }

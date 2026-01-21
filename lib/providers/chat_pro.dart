@@ -51,6 +51,14 @@ class ChatPro extends ChangeNotifier {
 
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
+
+  // Message search-related state
+  List<ChatMessage> messageSearchResults = [];
+  bool isSearching = false;
+  String searchQuery = "";
+  int searchTotalResults = 0;
+  int searchCurrentPage = 1;
+  int searchLastPage = 1;
   ProfileData? _userProfile;
   // String? get errorMessage => _errorMessage;
   ProfileData? get userProfile => _userProfile;
@@ -344,7 +352,6 @@ class ChatPro extends ChangeNotifier {
       notifyListeners();
       await delayed(millisec: 1000);
     }
-
     final pageToLoad = _currentPage;
     try {
       final res = await http.get(
@@ -388,6 +395,60 @@ class ChatPro extends ChangeNotifier {
     _currentPage = 1;
     _hasMore = true;
     _isLoadingMore = false;
+    notifyListeners();
+  }
+
+  /// ---------------- SEARCH MESSAGES ----------------
+  Future<void> searchMessages({
+    required String conversationId,
+    required String query,
+    required int currentUserId,
+  }) async {
+    if (query.trim().isEmpty) {
+      clearSearch();
+      return;
+    }
+    isSearching = true;
+    searchQuery = query;
+    notifyListeners();
+    try {
+      final res = await http.get(
+        Uri.parse(
+          "${ApiRoutes.baseUrl}chat/conversations/$conversationId/messages/search?query=${Uri.encodeComponent(query)}",
+        ),
+        headers: await apiHeaders(),
+      );
+      debugPrint("Search URI: ${res.request!.url}");
+      debugPrint("Search Response: ${res.body}");
+      if (res.statusCode == 200) {
+        final decoded = jsonDecode(res.body);
+        if (decoded['success'] == true) {
+          final List data = decoded['data'] ?? [];
+          final meta = decoded['meta'];
+          messageSearchResults = data
+              .map((e) => ChatMessage.fromJson(e, currentUserId))
+              .toList();
+          // If meta is available, use it; otherwise use data length
+          searchTotalResults = meta?['total'] ?? data.length;
+          searchCurrentPage = meta?['current_page'] ?? 1;
+          searchLastPage = meta?['last_page'] ?? 1;
+          debugPrint("Search found: $searchTotalResults results");
+        }
+      }
+    } catch (e) {
+      debugPrint("searchMessages error: $e");
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  void clearSearch() {
+    messageSearchResults.clear();
+    isSearching = false;
+    searchQuery = "";
+    searchTotalResults = 0;
+    searchCurrentPage = 1;
+    searchLastPage = 1;
     notifyListeners();
   }
 
@@ -469,8 +530,8 @@ class ChatPro extends ChangeNotifier {
       isMe: true,
       message: text,
       createdAt: DateTime.now(),
-      type: type, // 👈 Use passed type
-      audioUrl: audioUrl, // 👈 Use passed URL
+      type: type, //  Use passed type
+      audioUrl: audioUrl, // Use passed URL
       audioDuration: audioDuration,
     );
     // 2. Add to UI List (Only if in current chat)
@@ -492,7 +553,7 @@ class ChatPro extends ChangeNotifier {
         participants: old.participants,
         latestMessage: ChatLatestMessage(
           id: tempMessage.id,
-          message: previewText, // 👈 Show correct preview
+          message: previewText, //  Show correct preview
           type: type,
           createdAt: DateTime.now(),
           userId: currentUserId,
@@ -828,7 +889,7 @@ class ChatPro extends ChangeNotifier {
   }
 
   /// ---------------- CLEAR SEARCH ----------------
-  void clearSearch() {
+  void clearUserSearch() {
     _debounce?.cancel();
     searchResults.clear();
     errorMessage = null;
@@ -849,7 +910,7 @@ class ChatPro extends ChangeNotifier {
     _debounce?.cancel();
     // If input is empty → clear immediately
     if (query.trim().isEmpty) {
-      clearSearch();
+      clearUserSearch();
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -862,7 +923,7 @@ class ChatPro extends ChangeNotifier {
     _debounce?.cancel();
     // If input is empty → clear immediately
     if (query.trim().isEmpty) {
-      clearSearch();
+      clearUserSearch();
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -1114,6 +1175,7 @@ class ChatPro extends ChangeNotifier {
       notifyListeners();
     }
   }
+
   // 3. Cancel (Called when user slides to cancel)
   Future<void> cancelRecording() async {
     if (!isRecordingVoice) return;
@@ -1189,12 +1251,12 @@ class ChatPro extends ChangeNotifier {
         // 3. Success!
         // Ideally, parse the response to get the REAL server ID and remote URL.
         final data = jsonDecode(response.body);
-        debugPrint("✅ Voice upload response: $data");
+        debugPrint("Voice upload response: $data");
         if (data['success'] == true && data['data'] != null) {
           // Parse the real message from server
           final realMessage = ChatMessage.fromJson(data['data'], currentUserId);
-          debugPrint("✅ Uploaded voice audioUrl: ${realMessage.audioUrl}");
-          debugPrint("✅ Uploaded voice type: ${realMessage.type}");
+          debugPrint("Uploaded voice audioUrl: ${realMessage.audioUrl}");
+          debugPrint("Uploaded voice type: ${realMessage.type}");
           // Find the temp message index
           final index = messages.indexWhere((m) => m.id == tempId);
           if (index != -1) {

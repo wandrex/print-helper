@@ -356,7 +356,7 @@ class _ChatListState extends State<ChatList> {
             fontSize: 12,
           ),
           onTap: () {
-            pro.clearSearch();
+            pro.clearUserSearch();
             final existingId = pro.findPrivateConversationWithUser(user.id);
             navTo(
               context: context,
