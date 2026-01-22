@@ -14,12 +14,14 @@ class VoiceMessageBubbleUI extends StatefulWidget {
   final String path;
   final int duration;
   final bool isMe;
+  final bool isUploading; // NEW: Track if voice is still uploading
 
   const VoiceMessageBubbleUI({
     super.key,
     required this.path,
     required this.duration,
     required this.isMe,
+    this.isUploading = false,
   });
 
   @override
@@ -58,11 +60,11 @@ class _VoiceMessageBubbleUIState extends State<VoiceMessageBubbleUI>
       if (!mounted) return;
       await _waveController.preparePlayer(
         path: file.path,
-        shouldExtractWaveform: true,
+        shouldExtractWaveform: true
+        ,
         noOfSamples: 50,
         volume: 1.0,
       );
-
       if (mounted) {
         setState(() => _isReady = true);
       }
@@ -219,13 +221,24 @@ class _VoiceMessageBubbleUIState extends State<VoiceMessageBubbleUI>
                   shape: BoxShape.circle,
                   color: widget.isMe ? Colors.grey[300] : Colors.grey[400],
                 ),
-                child: IconButton(
-                  onPressed: _isReady ? _toggle : null,
-                  icon: Icon(
-                    _isMePlaying ? Icons.pause : Icons.play_arrow,
-                    color: _isReady ? Colors.black : Colors.grey,
-                  ),
-                ),
+                child: widget.isUploading
+                    ? Center(
+                        child: SizedBox(
+                          width: 20.w,
+                          height: 20.w,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        onPressed: _isReady ? _toggle : null,
+                        icon: Icon(
+                          _isMePlaying ? Icons.pause : Icons.play_arrow,
+                          color: _isReady ? Colors.black : Colors.grey,
+                        ),
+                      ),
               ),
               Spacers.sbw8(),
               SizedBox(
@@ -254,7 +267,9 @@ class _VoiceMessageBubbleUIState extends State<VoiceMessageBubbleUI>
           Padding(
             padding: EdgeInsets.only(left: 12.w),
             child: Text(
-              "${_fmt(_currentPosition.inSeconds)} / ${_fmt(widget.duration)}",
+              widget.isUploading
+                  ? "Uploading..."
+                  : "${_fmt(_currentPosition.inSeconds)} / ${_fmt(widget.duration)}",
               style: const TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ),

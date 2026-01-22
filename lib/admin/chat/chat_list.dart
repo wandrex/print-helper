@@ -76,159 +76,203 @@ class _ChatListState extends State<ChatList> {
   Widget _chatList(ChatPro pro) {
     if (pro.conversations.isEmpty) {
       return Center(
-        child: TextWidget(
-          text: 'No Chats',
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
+        child: Padding(
+          padding: EdgeInsets.all(18.0.w),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextWidget(
+                text: 'Welcome!',
+                fontSize: 22,
+                textAlign: TextAlign.center,
+                fontWeight: FontWeight.bold,
+              ),
+              TextWidget(
+                text: 'Connect with your team instantly.',
+                fontSize: 14,
+                textAlign: TextAlign.center,
+                fontWeight: FontWeight.w500,
+              ),
+              TextWidget(
+                text: 'Start a conversation by searching for users above',
+                fontSize: 14,
+                textAlign: TextAlign.center,
+                fontWeight: FontWeight.w500,
+              ),
+              // TextWidget(
+              //   text:
+              //       'Connect with your team instantly. \nStart a conversation by searching for users above',
+              //   fontSize: 16,
+              //   textAlign: TextAlign.center,
+              //   fontWeight: FontWeight.w600,
+              // ),
+            ],
+          ),
         ),
       );
     }
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: pro.conversations.length,
-      separatorBuilder: (context, index) => Divider(color: Color(0XFFe6e7e6)),
-      itemBuilder: (context, index) {
-        final chat = pro.conversations[index];
-        final participant =
-            chat.type == 'private' && chat.participants.isNotEmpty
-            ? chat.participants.first
-            : null;
-        return GestureDetector(
-          onTap: () async {
-            navTo(
-              context: context,
-              page: ChatScreen(
-                conversationId: chat.id,
-                title: chat.title,
-                receiverUserId:
-                    chat.type == 'private' && chat.participants.isNotEmpty
-                    ? chat.participants.first.id!
-                    : 0,
-              ),
-            );
-            final chatPro = getChatPro(context);
-            chatPro.markConversAsRead(chat.id);
-          },
-          child: ListTile(
-            leading: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(50.r),
-                border: Border.all(color: Color(0xffe6e7e6)),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(50.r),
-                child: ImageWidget(
-                  image: chat.type == 'private'
-                      // PRIVATE CHAT
-                      ? (participant?.image != null &&
-                                participant!.image!.isNotEmpty
-                            ? participant.image!
-                            : Paths.user)
-                      // GROUP CHAT
-                      : (chat.image != null && chat.image!.isNotEmpty
-                            ? chat.image!
-                            : Paths.other),
-                  height: 40,
-                  width: 40,
-                  fit: BoxFit.cover,
+    return RefreshIndicator(
+      onRefresh: () async {
+        await pro.loadConversations();
+      },
+      child: ListView.separated(
+        padding: EdgeInsets.zero,
+        itemCount: pro.conversations.length,
+        separatorBuilder: (context, index) => Divider(color: Color(0XFFe6e7e6)),
+        itemBuilder: (context, index) {
+          final chat = pro.conversations[index];
+          final participant =
+              chat.type == 'private' && chat.participants.isNotEmpty
+              ? chat.participants.first
+              : null;
+          final isDeletedUser = participant?.id == null;
+          return GestureDetector(
+            onTap: () async {
+              navTo(
+                context: context,
+                page: ChatScreen(
+                  conversationId: chat.id,
+                  title: chat.title,
+                  receiverUserId:
+                      chat.type == 'private' && chat.participants.isNotEmpty
+                      ? (chat.participants.first.id ?? 0)
+                      : 0,
                 ),
-              ),
-            ),
-            title: Row(
-              crossAxisAlignment: .center,
-              mainAxisAlignment: .start,
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: TextWidget(
-                    text: chat.title,
-                    color: Color(0xff414345),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+              );
+              final chatPro = getChatPro(context);
+              chatPro.markConversAsRead(chat.id);
+            },
+            child: ListTile(
+              leading: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(50.r),
+                  border: Border.all(color: Color(0xffe6e7e6)),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(50.r),
+                  child: ImageWidget(
+                    image: chat.type == 'private'
+                        // PRIVATE CHAT
+                        ? (chat.image.isNotEmpty ? chat.image : Paths.user)
+                        // GROUP CHAT
+                        : (chat.image.isNotEmpty ? chat.image : Paths.other),
+                    height: 40,
+                    width: 40,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                if (chat.type == 'private')
+              ),
+              title: Row(
+                crossAxisAlignment: .center,
+                mainAxisAlignment: .start,
+                children: [
                   Expanded(
-                    flex: 3,
+                    flex: 5,
                     child: TextWidget(
-                      text: '@${participant?.username ?? ''}',
+                      text: chat.title,
                       color: Color(0xff414345),
-                      fontWeight: FontWeight.w500,
-                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                chat.latestMessage != null
-                    ? Expanded(
-                        flex: 3,
-                        child: Column(
-                          children: [
-                            TextWidget(
-                              text: chat.latestMessage != null
-                                  ? DateFormat(
-                                      'dd MMM yyyy',
-                                    ).format(chat.latestMessage!.createdAt)
-                                  : '',
-                              color: Colors.grey,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 10,
-                            ),
-                          ],
-                        ),
-                      )
-                    : Spacer(flex: 3),
-              ],
-            ),
-            subtitle: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextWidget(
-                    text: chat.latestMessage?.message ?? "No messages yet",
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 13,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (chat.unreadCount > 0)
-                  Container(
-                    constraints: BoxConstraints(
-                      minWidth: 25.w,
-                      minHeight: 20.w,
-                    ),
-                    margin: EdgeInsets.only(top: 5.w, right: 4.w),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 8.w,
-                      vertical: 4.w,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      borderRadius: BorderRadius.circular(50.r),
-                    ),
-                    child: Center(
+                  if (chat.type == 'private')
+                    Expanded(
+                      flex: 3,
                       child: TextWidget(
-                        text: chat.unreadCount > 999
-                            ? '999+'
-                            : chat.unreadCount.toString(),
+                        text: isDeletedUser
+                            ? 'Deleted User'
+                            : '@${participant?.username ?? 'deleted user'}',
+                        color: isDeletedUser ? Colors.red : Color(0xff414345),
+                        fontWeight: FontWeight.w500,
                         fontSize: 10,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    )
+                  else if (chat.type == 'group' &&
+                      chat.latestMessage?.userName != null)
+                    Expanded(
+                      flex: 3,
+                      child: TextWidget(
+                        text: '@${chat.latestMessage?.userName ?? 'Unknown'}',
+                        color: Color(0xff414345),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 10,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                  chat.latestMessage != null
+                      ? Expanded(
+                          flex: 3,
+                          child: Column(
+                            children: [
+                              TextWidget(
+                                text: chat.latestMessage != null
+                                    ? DateFormat(
+                                        'dd MMM yyyy',
+                                      ).format(chat.latestMessage!.createdAt)
+                                    : '',
+                                color: Colors.grey,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                              ),
+                            ],
+                          ),
+                        )
+                      : Spacer(flex: 3),
+                ],
+              ),
+              subtitle: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextWidget(
+                      text: chat.latestMessage?.message ?? "No messages yet",
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-              ],
+                  if (chat.unreadCount > 0)
+                    Container(
+                      constraints: BoxConstraints(
+                        minWidth: 25.w,
+                        minHeight: 20.w,
+                      ),
+                      margin: EdgeInsets.only(top: 5.w, right: 4.w),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 8.w,
+                        vertical: 4.w,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(50.r),
+                      ),
+                      child: Center(
+                        child: TextWidget(
+                          text: chat.unreadCount > 999
+                              ? '999+'
+                              : chat.unreadCount.toString(),
+                          fontSize: 10,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 

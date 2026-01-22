@@ -1,26 +1,10 @@
-class ChatMessageStatic {
-  final String message;
-  final bool isMe;
-  final String channel;
-  final String dateTime;
-  final bool seen;
-  final bool isImage;
 
-  ChatMessageStatic({
-    required this.message,
-    required this.isMe,
-    required this.channel,
-    required this.dateTime,
-    this.seen = false,
-    this.isImage = false,
-  });
-}
 
 class ChatConversation {
   final int id;
   final String type; // private | group
   final String title;
-  final String? image;
+  final String image;
   final List<ChatParticipant> participants;
   final ChatLatestMessage? latestMessage;
   int unreadCount;
@@ -34,7 +18,7 @@ class ChatConversation {
     required this.title,
     required this.participants,
     this.latestMessage,
-    this.image,
+    required this.image,
     this.otherParticipants,
     required this.unreadCount,
     required this.updatedAt,
@@ -111,7 +95,7 @@ class ChatParticipant {
 }
 
 class OtherParticipant {
-  final int id;
+  final int? id; // Can be null if user is deleted
   final String name;
   final String username;
 

@@ -54,6 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final FocusNode _searchFocusNode = FocusNode();
   bool _isSearchMode = false;
   Timer? _searchDebounce;
+  bool _isChatDisabled = false; // True when peer is deleted
   OverlayEntry? _groupOverlay;
   String selectedSmsNumber = "(323) 000-0000";
   final _scrollCtrl = ScrollController();
@@ -95,6 +96,39 @@ class _ChatScreenState extends State<ChatScreen> {
       // NEW CHAT (no conversation yet)
       if (widget.conversationId == null) {
         return; // Do NOT fetch messages or init socket
+      }
+
+      // Fetch user profile for online/last seen status
+      final convo = pro.conversations.firstWhere(
+        (c) => c.id == widget.conversationId,
+        orElse: () => ChatConversation(
+          id: -1,
+          type: 'private',
+          title: widget.title,
+          participants: [],
+          latestMessage: null,
+          image: '',
+          unreadCount: 0,
+          updatedAt: DateTime.now(),
+          isDefault: true,
+        ),
+      );
+
+      if (convo.type == 'private' && convo.participants.isNotEmpty) {
+        pro.fetchUserProfile(
+          convo.participants[0].id.toString(),
+          conversationId: widget.conversationId,
+        );
+      }
+
+      // Mark chat as read-only if the other user was deleted
+      final isDeletedPeer =
+          convo.type == 'private' &&
+          convo.participants.isNotEmpty &&
+          convo.participants.first.id == null;
+
+      if (mounted && isDeletedPeer != _isChatDisabled) {
+        setState(() => _isChatDisabled = isDeletedPeer);
       }
       // Ensure we are at 0 (bottom) before adding listener
       if (_scrollCtrl.hasClients) {
@@ -403,6 +437,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _inputBar() {
+    if (_isChatDisabled) return _deletedChatBanner();
+
     final isRecording = context.watch<ChatPro>().isRecordingVoice;
     return SafeArea(
       minimum: EdgeInsets.only(bottom: 10.h),
@@ -433,6 +469,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   TextField(
                     controller: _messageCtrl,
                     focusNode: _focusNode,
+                    enabled: !_isChatDisabled,
+                    readOnly: _isChatDisabled,
                     minLines: 1,
                     maxLines: 4,
                     onTap: () {
@@ -513,6 +551,35 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _deletedChatBanner() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xfff9f9f9),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black12),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.block, color: Colors.redAccent),
+            Spacers.sbw12(),
+            Expanded(
+              child: TextWidget(
+                text:
+                    "This user was deleted. You can view history but cannot send messages.",
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Row inputKeys(bool isRecording) {
     return Row(
       children: [
@@ -534,6 +601,7 @@ class _ChatScreenState extends State<ChatScreen> {
         GestureDetector(
           key: const ValueKey('mic_btn'),
           onLongPress: () {
+            if (_isChatDisabled) return;
             if (widget.conversationId == null) {
               return; // Prevent recording if no chat exists yet
             }
@@ -559,6 +627,7 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           },
           onLongPressEnd: (details) {
+            if (_isChatDisabled) return;
             final pro = context.read<ChatPro>();
             final auth = context.read<AuthPro>();
             // 1. Check if cancelled via slider
@@ -671,6 +740,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _onEditSubmit() async {
+    if (_isChatDisabled) {
+      showToast(message: "Messaging disabled for this chat");
+      return;
+    }
     final newText = _messageCtrl.text.trim();
     if (newText.isEmpty || _editingMessage == null) return;
     final msgId = _editingMessage!.id;
@@ -714,6 +787,10 @@ class _ChatScreenState extends State<ChatScreen> {
   // }
 
   void _onSendPressed() async {
+    if (_isChatDisabled) {
+      showToast(message: "Messaging disabled for this chat");
+      return;
+    }
     final text = _messageCtrl.text.trim();
     if (text.isEmpty) return;
     setState(() => _showEmojiPicker = false);
@@ -883,6 +960,32 @@ class _ChatScreenState extends State<ChatScreen> {
     if (convo.type == 'group') {
       return "${convo.participants.length} members";
     }
+
+    // Show online/last seen for private chat
+    if (pro.userProfile != null) {
+      if (pro.userProfile!.isOnline) {
+        return "Online";
+      } else if (pro.userProfile!.lastSeenAt != null) {
+        final lastSeen = DateTime.tryParse(pro.userProfile!.lastSeenAt!);
+        if (lastSeen != null) {
+          final now = DateTime.now();
+          final diff = now.difference(lastSeen);
+
+          if (diff.inMinutes < 1) {
+            return "Last seen just now";
+          } else if (diff.inMinutes < 60) {
+            return "Last seen ${diff.inMinutes}m ago";
+          } else if (diff.inHours < 24) {
+            return "Last seen ${diff.inHours}h ago";
+          } else if (diff.inDays < 7) {
+            return "Last seen ${diff.inDays}d ago";
+          } else {
+            return "Last seen ${DateFormat('MMM dd').format(lastSeen)}";
+          }
+        }
+      }
+    }
+
     return "New chat";
   }
 
@@ -923,7 +1026,10 @@ class _ChatScreenState extends State<ChatScreen> {
           } else {
             navTo(
               context: context,
-              page: ProfileDetails(id: convo.participants[0].id.toString()),
+              page: ProfileDetails(
+                id: convo.participants[0].id.toString(),
+                conversationId: widget.conversationId,
+              ),
             );
           }
         },
@@ -1206,6 +1312,10 @@ class _ChatScreenState extends State<ChatScreen> {
               path: msg.audioUrl!,
               duration: msg.audioDuration ?? 0,
               isMe: msg.isMe,
+              isUploading:
+                  msg.audioUrl!.startsWith('/data') ||
+                  msg.audioUrl!.startsWith('file://') ||
+                  !msg.audioUrl!.startsWith('http'),
             )
           else
             highlightQuery != null && highlightQuery.isNotEmpty

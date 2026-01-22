@@ -153,7 +153,7 @@ class _ForwardMessageSheetState extends State<ForwardMessageSheet> {
           leading: ClipRRect(
             borderRadius: BorderRadius.circular(50.r),
             child: ImageWidget(
-              image: chat.image?.isNotEmpty == true ? chat.image! : Paths.user,
+              image: chat.image.isNotEmpty ? chat.image : Paths.user,
               height: 35,
               width: 35,
             ),

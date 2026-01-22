@@ -37,6 +37,10 @@ class ReverbSocketService {
   onUserStatusChanged; // For Online/Offline
   final void Function(Map<String, dynamic>)?
   onConversationCreated; // For new chats
+  final void Function(Map<String, dynamic>)?
+  onGroupMemberAdded; // For group member added
+  final void Function(Map<String, dynamic>)?
+  onGroupMemberRemoved; // For group member removed
 
   final VoidCallback onConnected;
 
@@ -48,6 +52,8 @@ class ReverbSocketService {
     this.onMessageStatusUpdated,
     this.onUserStatusChanged,
     this.onConversationCreated,
+    this.onGroupMemberAdded,
+    this.onGroupMemberRemoved,
     this.currentUserId,
   });
 
@@ -113,11 +119,32 @@ class ReverbSocketService {
             onConversationCreated!(data);
           });
 
-      // EVENT: message.sent (Global Notification)
+      // EVENT: group.member.added
+      // Triggered when a member is added to a group
+      _userChannel!.bind('group.member.added').listen((event) {
+        if (onGroupMemberAdded == null || !context.mounted) return;
+        final data = _safeJsonDecode(event.data);
+        if (data == null) return;
+        logData(title: '➕ GROUP MEMBER ADDED:', data: data.toString());
+        onGroupMemberAdded!(data);
+      });
+
+      // EVENT: group.member.removed
+      // Triggered when a member is removed from a group
+      _userChannel!.bind('group.member.removed').listen((event) {
+        if (onGroupMemberRemoved == null || !context.mounted) return;
+        final data = _safeJsonDecode(event.data);
+        if (data == null) return;
+        logData(title: 'GROUP MEMBER REMOVED:', data: data.toString());
+        onGroupMemberRemoved!(data);
+      });
+
+      // EVENT: message.sent (Global Notification) //external chatlist
       // Optional: You might want to show a top-snackbar notification here
       _messageSub = _userChannel!.bind("message.sent").listen((event) {
         final data = _safeJsonDecode(event.data);
         if (data != null) {
+          logData(title: '📩 MESSAGE SENT:', data: data.toString());
           debugPrint("📩 MESSAGE RECEIVED: $data");
           onMessageReceived(data);
         }
@@ -154,7 +181,6 @@ class ReverbSocketService {
         refresh();
       },
     );
-
     _client.onConnectionEstablished.listen((_) {
       debugPrint("✅ Reverb Conversation Channel Connected");
 
@@ -167,7 +193,7 @@ class ReverbSocketService {
         "private-conversation.$conversationId",
         authorizationDelegate: auth,
       );
-      // 1. Message Sent
+      // 1. Message Sent internal chat
       _messageSub = _conversationChannel!.bind("message.sent").listen((event) {
         final data = _safeJsonDecode(event.data);
         if (data != null) onMessageReceived(data);

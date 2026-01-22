@@ -9,13 +9,15 @@ import 'package:print_helper/services/helpers.dart';
 import 'package:print_helper/widgets/image_widget.dart';
 import 'package:print_helper/widgets/text_widget.dart';
 import 'package:provider/provider.dart';
+import 'components/voice_mesg_bubble.dart';
 
 import '../../constants/paths.dart' show Paths;
 import '../../widgets/spacers.dart';
 
 class ProfileDetails extends StatefulWidget {
   final String id;
-  const ProfileDetails({super.key, required this.id});
+  final int? conversationId;
+  const ProfileDetails({super.key, required this.id, this.conversationId});
   @override
   State<ProfileDetails> createState() => _ProfileDetailsState();
 }
@@ -26,7 +28,7 @@ class _ProfileDetailsState extends State<ProfileDetails> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final pro = getChatPro(context);
-      pro.fetchUserProfile(widget.id);
+      pro.fetchUserProfile(widget.id, conversationId: widget.conversationId);
     });
   }
 
@@ -76,19 +78,7 @@ class _ProfileDetailsState extends State<ProfileDetails> {
                 Spacers.sb15(),
                 ExpandableCard(title: "About", child: _aboutSection(data)),
                 Spacers.sb15(),
-                ExpandableCard(
-                  title: "Recordings",
-                  child: Padding(
-                    padding: EdgeInsets.all(16.w),
-                    child: TextWidget(
-                      text: "No Recordings",
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black54,
-                    ),
-                    //  _recordings(),
-                  ),
-                ),
+                ExpandableCard(title: "Recordings", child: _recordings(data)),
                 Spacers.sb15(),
               ],
             ),
@@ -307,62 +297,84 @@ class _ProfileDetailsState extends State<ProfileDetails> {
     );
   }
 
-  Widget recordings() {
-    return Column(
-      children: List.generate(2, (index) {
-        return Container(
-          margin: EdgeInsets.only(bottom: 10.h, left: 18.w, right: 18.w),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xffF2F2F2),
-            borderRadius: BorderRadius.circular(13.r),
-          ),
-          child: Row(
-            children: [
-              Container(
-                height: 36.h,
-                width: 36.w,
+  Widget _recordings(ProfileData data) {
+    // Filter recordings by conversation ID if provided
+    final filteredRecordings = widget.conversationId != null
+        ? data.recordings
+              .where((rec) => rec.conversationId == widget.conversationId)
+              .toList()
+        : data.recordings;
+
+    if (filteredRecordings.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.all(16.w),
+        child: TextWidget(
+          text: "No Recordings",
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: Colors.black54,
+        ),
+      );
+    }
+
+    int parseDuration(String raw) {
+      // Expecting mm:ss, fallback to 0
+      try {
+        final parts = raw.split(":");
+        if (parts.length == 2) {
+          final m = int.tryParse(parts[0]) ?? 0;
+          final s = int.tryParse(parts[1]) ?? 0;
+          return m * 60 + s;
+        }
+      } catch (_) {}
+      return 0;
+    }
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+      child: Column(
+        children: filteredRecordings
+            .where((rec) => rec.voiceUrl.isNotEmpty || rec.voicePath.isNotEmpty)
+            .map((rec) {
+              final durationSecs = parseDuration(rec.duration);
+              return Container(
+                margin: EdgeInsets.only(bottom: 10.h),
+                padding: EdgeInsets.all(10.w),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(18.r),
+                  color: const Color(0xffF2F2F2),
+                  borderRadius: BorderRadius.circular(13.r),
                 ),
-                child: const Icon(Icons.play_arrow),
-              ),
-              Spacers.sbw12(),
-              Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    TextWidget(
-                      text: "•၊၊||၊|။||||။၊|၊||၊||၊။၊|။•",
-                      fontSize: 17,
-                      color: Colors.black,
-                      fontWeight: FontWeight.w600,
+                    VoiceMessageBubbleUI(
+                      path: rec.voiceUrl.isNotEmpty
+                          ? rec.voiceUrl
+                          : rec.voicePath,
+                      duration: durationSecs,
+                      isMe: false,
+                      isUploading: rec.voiceUrl.isEmpty,
                     ),
-                    Spacers.sb5(),
-                    TextWidget(
-                      text: "00:00/00:30",
-                      fontSize: 12,
-                      color: Colors.black,
-                      fontWeight: FontWeight.w400,
-                    ),
+                    Spacers.sb8(),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextWidget(
-                        text: "2024/02/05 - 4:56 pm",
+                        text: rec.recordedAt != null
+                            ? DateFormat(
+                                'dd/MM/yyyy • h:mm a',
+                              ).format(rec.recordedAt!)
+                            : (rec.timeLabel ?? ''),
                         fontSize: 12,
-                        color: Colors.black,
+                        color: Colors.black87,
                         fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
                 ),
-              ),
-              Icon(Icons.file_download_outlined, size: 28.sp),
-            ],
-          ),
-        );
-      }),
+              );
+            })
+            .toList(),
+      ),
     );
   }
 }

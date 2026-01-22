@@ -113,6 +113,12 @@ class ChatPro extends ChangeNotifier {
       onConversationCreated: (data) {
         _handleNewConversation(data);
       },
+      onGroupMemberAdded: (data) {
+        _handleGroupMemberAdded(data);
+      },
+      onGroupMemberRemoved: (data) {
+        _handleGroupMemberRemoved(data);
+      },
     );
     _chatListSocket!.connectUserChannel(
       host: ApiRoutes.socketHost,
@@ -185,6 +191,33 @@ class ChatPro extends ChangeNotifier {
   }
 
   // 1. Handle New Message (Existing)
+  // void _handleRealtimeConversationMessage(
+  //   Map<String, dynamic> data,
+  //   int currentUserId,
+  //   int conversationId,
+  // ) {
+  //   final payload = data.containsKey('message') && data['message'] is Map
+  //       ? data['message']
+  //       : data;
+  //   if (payload['conversation_id'].toString() != conversationId.toString()) {
+  //     return;
+  //   }
+  //   final msg = ChatMessage.fromJson(payload, currentUserId);
+  //   if (msg.senderId == currentUserId) return; // Prevent duplicate self-message
+  //   messages.insert(0, msg);
+  //   debugPrint("📩 Message received. ChatScreenOpen: $isChatScreenOpen");
+  //   if (!isChatScreenOpen) {
+  //     NotificationService.instance.showChatNotification(
+  //       title: "New message",
+  //       body: msg.message,
+  //       id: msg.id,
+  //     );
+  //   }
+  //   // If we are in the chat, mark as read immediately via API
+  //   markConversAsRead(conversationId);
+  //   notifyListeners();
+  // }
+
   void _handleRealtimeConversationMessage(
     Map<String, dynamic> data,
     int currentUserId,
@@ -197,18 +230,37 @@ class ChatPro extends ChangeNotifier {
       return;
     }
     final msg = ChatMessage.fromJson(payload, currentUserId);
-    if (msg.senderId == currentUserId) return; // Prevent duplicate self-message
-    messages.insert(0, msg);
-    debugPrint("📩 Message received. ChatScreenOpen: $isChatScreenOpen");
-    if (!isChatScreenOpen) {
-      NotificationService.instance.showChatNotification(
-        title: "New message",
-        body: msg.message,
-        id: msg.id,
-      );
+
+    /// Prevent duplicate self-message
+    if (msg.senderId == currentUserId) return;
+
+    /// Check if message already exists
+    final existingIndex = messages.indexWhere((m) => m.id == msg.id);
+
+    /// If exists → update message
+    if (existingIndex != -1) {
+      messages[existingIndex] = msg;
     }
-    // If we are in the chat, mark as read immediately via API
-    markConversAsRead(conversationId);
+    /// If new → insert at top
+    else {
+      messages.insert(0, msg);
+
+      /// Show notification only for new messages & when chat is closed
+      if (!isChatScreenOpen) {
+        NotificationService.instance.showChatNotification(
+          title: "New message",
+          body: msg.message,
+          id: msg.id,
+        );
+      }
+    }
+    debugPrint("📩 Message received. ChatScreenOpen: $isChatScreenOpen");
+
+    /// If chat screen is open, mark as read
+    if (isChatScreenOpen) {
+      markConversAsRead(conversationId);
+    }
+
     notifyListeners();
   }
 
@@ -271,43 +323,197 @@ class ChatPro extends ChangeNotifier {
     }
   }
 
+  // 6. ✅ Handle Group Member Added
+  void _handleGroupMemberAdded(Map<String, dynamic> data) async {
+    try {
+      final conversationId = data['conversation_id'];
+      if (conversationId == null) return;
+      debugPrint("Member added to group $conversationId");
+      // Fetch updated conversation details
+      await _updateSingleConversation(conversationId);
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error handling group member added: $e");
+    }
+  }
+  // 7. ✅ Handle Group Member Removed
+  void _handleGroupMemberRemoved(Map<String, dynamic> data) async {
+    try {
+      final conversationId = data['conversation_id'];
+      final removedUserId = data['user_id'];
+      if (conversationId == null) return;
+      debugPrint("Member $removedUserId removed from group $conversationId");
+      // Fetch updated conversation details
+      await _updateSingleConversation(conversationId);
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error handling group member removed: $e");
+    }
+  }
+
+  /// ---------------- UPDATE SINGLE CONVERSATION ----------------
+  Future<void> _updateSingleConversation(int conversationId) async {
+    try {
+      final res = await http.get(
+        Uri.parse("${ApiRoutes.baseUrl}chat/conversations/$conversationId"),
+        headers: await apiHeaders(),
+      );
+      debugPrint("_updateSingleConversation response: ${res.statusCode}");
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        debugPrint("_updateSingleConversation data: $data");
+        if (data['success'] == true && data['data'] != null) {
+          final updatedConvo = ChatConversation.fromJson(data['data']);
+          // Find and replace the conversation in the list
+          final index = conversations.indexWhere((c) => c.id == conversationId);
+          if (index != -1) {
+            conversations[index] = updatedConvo;
+            debugPrint("Updated conversation $conversationId in list");
+          } else {
+            // If not found, add to top (new conversation)
+            conversations.insert(0, updatedConvo);
+            debugPrint("Added new conversation $conversationId to list");
+          }
+        } else if (data['success'] == false) {
+          // If backend returns success=false, user might have been removed
+          debugPrint(
+            "Backend returned success=false for conversation $conversationId",
+          );
+          final index = conversations.indexWhere((c) => c.id == conversationId);
+          if (index != -1) {
+            conversations.removeAt(index);
+            debugPrint(
+              "Removed conversation $conversationId from list (no access)",
+            );
+          }
+        }
+      } else if (res.statusCode == 403 || res.statusCode == 404) {
+        // User no longer has access to this conversation (removed from group)
+        debugPrint("User removed from conversation $conversationId");
+        final index = conversations.indexWhere((c) => c.id == conversationId);
+        if (index != -1) {
+          conversations.removeAt(index);
+          debugPrint("Removed conversation $conversationId from list");
+        }
+      }
+    } catch (e) {
+      debugPrint("_updateSingleConversation error: $e");
+    }
+  }
+
   /// ---------------- HANDLE REALTIME MESSAGE (CHAT LIST) ----------------
+  // void _handleRealtimeChatListMessage(
+  //   Map<String, dynamic> data,
+  //   String currentUserId,
+  // ) {
+  //   final conversationId = data['conversation_id'];
+  //   final senderId = data['user_id'];
+  //   final index = conversations.indexWhere(
+  //     (c) => c.id.toString() == conversationId.toString(),
+  //   );
+  //   // if (index == -1) {
+  //   //   // Optional: Reload list if a new conversation appears that isn't in the list yet
+  //   //   // loadConversations();
+  //   //   return;
+  //   // }
+  //   final old = conversations[index];
+  //   final latestMessage = ChatLatestMessage.fromJson(data);
+
+  //   final existingIndex = messages.indexWhere((m) {
+  //     logData(title: "m.id, m.message", data: "${m.id}, ${m.message}");
+
+  //     logData(title: "latestMessage.id", data: latestMessage.id);
+  //     return m.id == latestMessage.id;
+  //   });
+  //   logData(title: "existingIndex", data: '$existingIndex');
+
+  //   final insertIndex = existingIndex != -1 ? existingIndex : 0;
+  //   logData(title: "insertIndex", data: insertIndex);
+
+  //   final updatedConversation = ChatConversation(
+  //     id: old.id,
+  //     type: old.type,
+  //     title: old.title,
+  //     participants: old.participants,
+  //     latestMessage: latestMessage,
+  //     unreadCount: senderId.toString() == currentUserId
+  //         ? old.unreadCount
+  //         : old.unreadCount + 1,
+  //     updatedAt: DateTime.now(),
+  //     isDefault: old.isDefault,
+  //   );
+  //   conversations
+  //     ..removeAt(index)
+  //     ..insert(insertIndex, updatedConversation);
+
+  //   NotificationService.instance.showChatNotification(
+  //     title: "New message From ${latestMessage.userName}",
+  //     body: latestMessage.message,
+  //     id: latestMessage.id,
+  //   );
+  //   notifyListeners();
+  // }
+
   void _handleRealtimeChatListMessage(
     Map<String, dynamic> data,
     String currentUserId,
   ) {
     final conversationId = data['conversation_id'];
     final senderId = data['user_id'];
-    final index = conversations.indexWhere(
+
+    final convoIndex = conversations.indexWhere(
       (c) => c.id.toString() == conversationId.toString(),
     );
-    if (index == -1) {
-      // Optional: Reload list if a new conversation appears that isn't in the list yet
-      // loadConversations();
-      return;
-    }
-    final old = conversations[index];
+
+    if (convoIndex == -1) return;
+
+    final oldConversation = conversations[convoIndex];
     final latestMessage = ChatLatestMessage.fromJson(data);
+
+    /// Check if this message already exists
+    final existingIndex = messages.indexWhere((m) => m.id == latestMessage.id);
+
+    /// Update unread count
+    final unreadCount = senderId.toString() == currentUserId
+        ? oldConversation.unreadCount
+        : oldConversation.unreadCount + 1;
+
+    // final updatedConversation = oldConversation.copyWith(
+    //   latestMessage: latestMessage,
+    //   unreadCount: unreadCount,
+    //   updatedAt: DateTime.now(),
+    // );
+
     final updatedConversation = ChatConversation(
-      id: old.id,
-      type: old.type,
-      title: old.title,
-      participants: old.participants,
+      id: oldConversation.id,
+      type: oldConversation.type,
+      title: oldConversation.title,
+      participants: oldConversation.participants,
       latestMessage: latestMessage,
-      unreadCount: senderId.toString() == currentUserId
-          ? old.unreadCount
-          : old.unreadCount + 1,
+      unreadCount: unreadCount,
       updatedAt: DateTime.now(),
-      isDefault: old.isDefault,
+      isDefault: oldConversation.isDefault,
+      image: oldConversation.image,
     );
-    conversations
-      ..removeAt(index)
-      ..insert(0, updatedConversation);
-    NotificationService.instance.showChatNotification(
-      title: "New message From ${latestMessage.userName}",
-      body: latestMessage.message,
-      id: latestMessage.id,
-    );
+
+    /// Remove old position
+    conversations.removeAt(convoIndex);
+
+    /// 👉 If message exists → keep it in same position
+    /// 👉 If new message → move to top (index 0)
+    final insertIndex = existingIndex != -1 ? convoIndex : 0;
+
+    conversations.insert(insertIndex, updatedConversation);
+
+    /// Show notification only for new incoming messages
+    if (senderId.toString() != currentUserId && existingIndex == -1) {
+      NotificationService.instance.showChatNotification(
+        title: "New message from ${latestMessage.userName}",
+        body: latestMessage.message,
+        id: latestMessage.id,
+      );
+    }
+
     notifyListeners();
   }
 
@@ -859,15 +1065,18 @@ class ChatPro extends ChangeNotifier {
 
   /// ---------------- FETCH PROFILE ----------------
 
-  Future<void> fetchUserProfile(String id) async {
+  Future<void> fetchUserProfile(String id, {int? conversationId}) async {
     Loaders.show();
     errorMessage = null;
     notifyListeners();
     try {
-      final res = await http.get(
-        Uri.parse("${ApiRoutes.baseUrl}chat/users/$id"),
-        headers: await apiHeaders(),
-      );
+      final uri = conversationId != null
+          ? Uri.parse(
+              "${ApiRoutes.baseUrl}chat/users/$id?conversationId=$conversationId",
+            )
+          : Uri.parse("${ApiRoutes.baseUrl}chat/users/$id");
+      debugPrint("Fetching profile from: $uri");
+      final res = await http.get(uri, headers: await apiHeaders());
       debugPrint("uri: ${res.request!.url}");
       if (res.statusCode == 200) {
         final jsonResponse = json.decode(res.body);
@@ -1288,7 +1497,7 @@ class ChatPro extends ChangeNotifier {
     required int messageId,
     required String newMessage,
   }) async {
-    // 1. Optimistic Update (Update UI immediately)
+    Loaders.show();
     final index = messages.indexWhere((m) => m.id == messageId);
     if (index != -1) {
       messages[index] = messages[index].copyWith(message: newMessage);
@@ -1306,11 +1515,20 @@ class ChatPro extends ChangeNotifier {
       if (res.statusCode == 200) {
         showToast(message: "Message edited successfully");
       } else {
-        showToast(message: "Unable to edit message");
+        String backendMsg = "Unable to edit message";
+        try {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map && decoded['message'] is String) {
+            backendMsg = decoded['message'];
+          }
+        } catch (_) {}
+        showToast(message: backendMsg);
         debugPrint("Failed to edit message");
       }
     } catch (e) {
       debugPrint("editMessage error: $e");
+    } finally {
+      Loaders.hide();
     }
   }
 

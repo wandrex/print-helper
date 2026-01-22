@@ -17,7 +17,6 @@ import '../../widgets/spacers.dart';
 import '../../widgets/text_widget.dart';
 import '../../widgets/toasts.dart';
 import '../filter/filter_screen.dart';
-import 'client_chat.dart';
 
 class ClientScreen extends StatefulWidget {
   final bool isFromAdmin;
@@ -56,6 +55,7 @@ class _ClientScreenState extends State<ClientScreen> {
       getClientPro(context).getClients(ctx: context);
     });
   }
+
   Future<void> _onRefresh() async {
     final provider = getClientPro(context);
     await provider.getClients(ctx: context, page: 1, loadMore: false);
@@ -719,17 +719,17 @@ class _ClientScreenState extends State<ClientScreen> {
                       image: Paths.chat,
                       width: 23,
                       onPressed: () {
-                        final authPro = Provider.of<AuthPro>(
-                          context,
-                          listen: false,
-                        );
-                        navTo(
-                          context: context,
-                          page: ClientChat(
-                            clientId: item.id,
-                            authToken: authPro.token,
-                          ),
-                        );
+                        // final authPro = Provider.of<AuthPro>(
+                        //   context,
+                        //   listen: false,
+                        // );
+                        // navTo(
+                        //   context: context,
+                        //   page: ClientChat(
+                        //     clientId: item.id,
+                        //     authToken: authPro.token,
+                        //   ),
+                        // );
                       },
                     ),
                     widget.isFromAdmin
