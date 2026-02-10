@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "962951273814",
+    "project_id": "print-helper-29c11",
+    "storage_bucket": "print-helper-29c11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:962951273814:android:c808316b9ee6ad26624af7",
+        "android_client_info": {
+          "package_name": "com.printhelper.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8V9csf6flo0ScmYOKeiDryebTyvQl6DA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

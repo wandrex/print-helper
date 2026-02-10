@@ -11,6 +11,8 @@ import 'package:print_helper/providers/auth_pro.dart';
 import 'package:print_helper/services/helpers.dart';
 import 'package:print_helper/widgets/image_widget.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:twilio_voice/twilio_voice.dart';
 
 import '../../../constants/colors.dart';
 import '../../../constants/paths.dart';
@@ -83,6 +85,418 @@ class _ChatScreenState extends State<ChatScreen> {
       _messageCtrl.clear();
     });
     _focusNode.unfocus();
+  }
+
+  bool _isGranted(dynamic result) => result is bool ? result : true;
+
+  Future<bool> _ensureCallPermissions() async {
+    try {
+      final readNumbers = await TwilioVoice.instance
+          .requestReadPhoneNumbersPermission();
+      final readState = await TwilioVoice.instance
+          .requestReadPhoneStatePermission();
+      final callPhone = await TwilioVoice.instance.requestCallPhonePermission();
+      final mic = await TwilioVoice.instance.requestMicAccess();
+
+      final granted =
+          _isGranted(readNumbers) &&
+          _isGranted(readState) &&
+          _isGranted(callPhone) &&
+          _isGranted(mic);
+
+      if (!granted) {
+        showToast(message: "Call permissions are required");
+      }
+      return granted;
+    } catch (e) {
+      showToast(message: "Unable to request call permissions");
+      debugPrint("Call permissions error: $e");
+      return false;
+    }
+  }
+
+  Future<bool> _ensureTwilioTokens() async {
+    final chatPro = getChatPro(context);
+    final accessToken = await chatPro.getTwilioAccessToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      showToast(message: "Twilio access token is missing");
+      return false;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final deviceToken = prefs.getString("fcm_token");
+    if (deviceToken == null || deviceToken.isEmpty) {
+      showToast(message: "FCM device token is missing");
+      return false;
+    }
+
+    try {
+      await TwilioVoice.instance.setTokens(
+        accessToken: accessToken,
+        deviceToken: deviceToken,
+      );
+      return true;
+    } catch (e) {
+      showToast(message: "Failed to register Twilio tokens");
+      debugPrint("Twilio setTokens error: $e");
+      return false;
+    }
+  }
+
+  Future<void> _placeVoiceCall({String? fromNumber, String? toNumber}) async {
+    if (widget.conversationId == null) return;
+    final authPro = getAuthPro(context);
+    final hasPermissions = await _ensureCallPermissions();
+    if (!hasPermissions) return;
+    final hasTokens = await _ensureTwilioTokens();
+    if (!hasTokens) return;
+    try {
+      await TwilioVoice.instance.registerPhoneAccount();
+      final enabled = await TwilioVoice.instance.isPhoneAccountEnabled();
+      if (!enabled) {
+        showToast(message: "Enable the calling account to place calls");
+        await TwilioVoice.instance.openPhoneAccountSettings();
+        return;
+      }
+
+      final extras = <String, dynamic>{
+        "conversation_id": widget.conversationId.toString(),
+        if (fromNumber != null && fromNumber.isNotEmpty)
+          "from_number": fromNumber,
+      };
+
+      await TwilioVoice.instance.call.place(
+        from: fromNumber ?? authPro.user!.id.toString(),
+        to: toNumber ?? widget.receiverUserId.toString(),
+        extraOptions: {
+          ...extras,
+          if (toNumber != null && toNumber.isNotEmpty) "to_number": toNumber,
+        },
+      );
+    } catch (e) {
+      showToast(message: "Failed to place call");
+      debugPrint("Twilio call error: $e");
+    }
+  }
+
+  void _showCallFromSheet() {
+    String? selectedNumber;
+    String? selectedToNumber;
+    final media = MediaQuery.of(context);
+    final rect = RelativeRect.fromLTRB(
+      0,
+      kToolbarHeight + media.padding.top + 8.h,
+      0,
+      0,
+    );
+    showMenu<void>(
+      context: context,
+      position: rect,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16.r),
+        side: BorderSide(color: Colors.grey.shade300),
+      ),
+      constraints: BoxConstraints(
+        maxWidth: media.size.width,
+        minWidth: media.size.width,
+      ),
+      items: [
+        PopupMenuItem(
+          enabled: false,
+          padding: EdgeInsets.zero,
+          child: StatefulBuilder(
+            builder: (context, setStateSheet) {
+              return Container(
+                padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 16.h),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16.r),
+                ),
+                child: FutureBuilder<List<CallFromNumber>>(
+                  future: getChatPro(context).fetchCallFromNumbers(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return SizedBox(
+                        height: 200.h,
+                        child: Center(child: showLoader()),
+                      );
+                    }
+                    final numbers = snapshot.data ?? [];
+                    if (selectedNumber == null && numbers.isNotEmpty) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (selectedNumber == null) {
+                          setStateSheet(
+                            () => selectedNumber = numbers.first.number,
+                          );
+                        }
+                      });
+                    }
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            ImageWidget(image: Paths.call, width: 18),
+                            Spacers.sbw8(),
+                            const TextWidget(
+                              text: "Start Call",
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close, size: 20),
+                            ),
+                          ],
+                        ),
+                        Spacers.sb5(),
+                        const TextWidget(
+                          text: "Call From",
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        Spacers.sb8(),
+                        if (numbers.isEmpty)
+                          Padding(
+                            padding: EdgeInsets.symmetric(vertical: 18.h),
+                            child: const Center(
+                              child: TextWidget(
+                                text:
+                                    "No Twilio numbers are assigned to this user.",
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12.w,
+                                  vertical: 6.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10.r),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                  ),
+                                  color: Colors.white,
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: selectedNumber,
+                                    isExpanded: true,
+                                    borderRadius: BorderRadius.circular(14.r),
+                                    isDense: true,
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 5.h,
+                                    ),
+                                    icon: const Icon(Icons.arrow_drop_down),
+                                    selectedItemBuilder: (context) {
+                                      return numbers.map((item) {
+                                        final display =
+                                            item.display ?? item.number;
+                                        final label = item.label.isNotEmpty
+                                            ? item.label
+                                            : "Twilio Line";
+                                        return Row(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(30.r),
+                                              child: ImageWidget(
+                                                image:
+                                                    item.logo
+                                                            .toString()
+                                                            .isEmpty ||
+                                                        item.logo == null
+                                                    ? Paths.other
+                                                    : item.logo.toString(),
+                                                fit: BoxFit.cover,
+                                                width: 24,
+                                                height: 24,
+                                              ),
+                                            ),
+                                            Spacers.sbw8(),
+                                            Expanded(
+                                              child: TextWidget(
+                                                text: "$label - $display",
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        );
+                                      }).toList();
+                                    },
+                                    items: numbers.map((item) {
+                                      final display =
+                                          item.display ?? item.number;
+                                      final contextLabel =
+                                          (item.context != null &&
+                                              item.context!.isNotEmpty)
+                                          ? "${item.context}"
+                                          : "";
+                                      return DropdownMenuItem<String>(
+                                        value: item.number,
+                                        child: Row(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(30.r),
+                                              child: ImageWidget(
+                                                image:
+                                                    item.logo
+                                                            .toString()
+                                                            .isEmpty ||
+                                                        item.logo == null
+                                                    ? Paths.other
+                                                    : item.logo.toString(),
+                                                fit: BoxFit.cover,
+                                                width: 24,
+                                                height: 24,
+                                              ),
+                                            ),
+                                            Spacers.sbw8(),
+                                            Expanded(
+                                              child: TextWidget(
+                                                text:
+                                                    "$contextLabel - $display",
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (value) {
+                                      setStateSheet(
+                                        () => selectedNumber = value,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              Spacers.sb12(),
+                              const TextWidget(
+                                text: "Select a number to call",
+                                color: Colors.grey,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              Spacers.sb8(),
+                              FutureBuilder<List<CallFromNumber>>(
+                                future: getChatPro(
+                                  context,
+                                ).fetchUserTwilioNumbers(widget.receiverUserId),
+                                builder: (context, toSnapshot) {
+                                  if (toSnapshot.connectionState ==
+                                      ConnectionState.waiting) {
+                                    return SizedBox(
+                                      height: 90.h,
+                                      child: Center(child: showLoader()),
+                                    );
+                                  }
+                                  final toNumbers = toSnapshot.data ?? [];
+                                  if (toNumbers.isEmpty) {
+                                    return const TextWidget(
+                                      text:
+                                          "No Twilio numbers are assigned to this user.",
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    );
+                                  }
+                                  return Column(
+                                    children: toNumbers.map((item) {
+                                      return GestureDetector(
+                                        onTap: () {
+                                          setStateSheet(
+                                            () =>
+                                                selectedToNumber = item.number,
+                                          );
+                                          if (selectedNumber == null ||
+                                              selectedNumber!.isEmpty) {
+                                            showToast(
+                                              message:
+                                                  "Select a call from number",
+                                            );
+                                            return;
+                                          }
+                                          Navigator.pop(context);
+                                          debugPrint(
+                                            "Call from: $selectedNumber | Call to: ${item.number}",
+                                          );
+                                          _placeVoiceCall(
+                                            fromNumber: selectedNumber,
+                                            toNumber: item.number,
+                                          );
+                                        },
+                                        child: Container(
+                                          margin: EdgeInsets.only(bottom: 6.h),
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 10.w,
+                                            vertical: 5.h,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(
+                                              12.r,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(30.r),
+                                                child: ImageWidget(
+                                                  image:
+                                                      item.logo
+                                                              .toString()
+                                                              .isEmpty ||
+                                                          item.logo == null
+                                                      ? Paths.other
+                                                      : item.logo.toString(),
+                                                  fit: BoxFit.cover,
+                                                  width: 24,
+                                                  height: 24,
+                                                ),
+                                              ),
+                                              Spacers.sbw8(),
+                                              TextWidget(
+                                                text:
+                                                    item.display ?? item.number,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -1095,13 +1509,14 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           onPressed: () {},
         ),
+
         IconButton(
           icon: ImageIcon(
             AssetImage(Paths.call),
             color: AppColors.black,
             size: 20,
           ),
-          onPressed: () {},
+          onPressed: _showCallFromSheet,
         ),
         _groupInfoAction(),
         IconButton(

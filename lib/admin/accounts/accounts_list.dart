@@ -133,7 +133,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     );
   }
 
-  AppBar _appBar(dynamic context) {
+  AppBar _appBar(BuildContext context) {
     return AppBar(
       backgroundColor: AppColors.white,
       surfaceTintColor: AppColors.white,
@@ -195,26 +195,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
               clipBehavior: Clip.none,
               children: [
                 IconButton(
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      barrierColor: Colors.black.withValues(alpha: 0.25),
-                      builder: (_) => FractionallySizedBox(
-                        heightFactor: 0.90,
-                        child: FilterSheet(
-                          initialFilters: pro.accountFilters,
-                          isFromStaff: true,
-                          isFromClient: false,
-                        ),
-                      ),
-                    ).then((filters) {
-                      if (filters != null && filters is Map<String, dynamic>) {
-                        pro.applyAccountFilters(filters, context);
-                      }
-                    });
-                  },
+                  onPressed: () => filterbottomSheet(context, pro),
                   icon: ImageWidget(image: Paths.filter, width: 20),
                 ),
                 if (count > 0)
@@ -247,33 +228,30 @@ class _AccountsScreenState extends State<AccountsScreen> {
             );
           },
         ),
-
-        // IconButton(
-        //   onPressed: () {
-        //     final pro = getAdminPro(context);
-        //     showModalBottomSheet(
-        //       context: context,
-        //       isScrollControlled: true,
-        //       backgroundColor: Colors.transparent,
-        //       barrierColor: Colors.black.withValues(alpha: 0.25),
-        //       builder: (_) => FractionallySizedBox(
-        //         heightFactor: 0.90,
-        //         child: FilterSheet(
-        //           initialFilters: pro.accountFilters,
-        //           isFromStaff: false,
-        //         ),
-        //       ),
-        //     ).then((filters) {
-        //       if (filters != null && filters is Map<String, dynamic>) {
-        //         final pro = getAdminPro(context);
-        //         pro.applyAccountFilters(filters, context);
-        //       }
-        //     });
-        //   },
-        //   icon: ImageWidget(image: Paths.filter, width: 20),
-        // ),
       ],
     );
+  }
+
+  void filterbottomSheet(dynamic context, AdminPro pro) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.25),
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.90,
+        child: FilterSheet(
+          initialFilters: pro.accountFilters,
+          isFromStaff: true,
+          isFromClient: false,
+        ),
+      ),
+    ).then((filters) {
+      if (!mounted) return;
+      if (filters != null && filters is Map<String, dynamic>) {
+        pro.applyAccountFilters(filters, context);
+      }
+    });
   }
 
   Widget _accountCard(
@@ -604,6 +582,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 Navigator.pop(context); // close showGeneralDialog popup
                 final pro = getAdminPro(context);
                 bool success = await pro.deleteAccount(id, context);
+                if (!mounted) return;
                 if (success) {
                   showToast(message: "Account deleted successfully");
                   pro.getAccounts(ctx: context);

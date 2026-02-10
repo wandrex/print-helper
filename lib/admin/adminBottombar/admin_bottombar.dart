@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../constants/colors.dart';
 import '../../utils/textstyle_util.dart';
 import '../drawer/drawer.dart';
 import 'nav_widgets.dart';
+import '../chat/provider/chat_pro.dart';
 
 class AdminBottomBar extends StatefulWidget {
   final int pageNum;
@@ -49,19 +51,24 @@ class _AdminBottomBarState extends State<AdminBottomBar>
         ),
         child: Container(
           decoration: NavWidgets.decor(),
-          child: BottomNavigationBar(
-            onTap: _onItemTapped,
-            elevation: 0,
-            currentIndex: pageNum,
-            items: NavWidgets.tabItems,
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: AppColors.black,
-            selectedItemColor: AppColors.white,
-            unselectedItemColor: AppColors.white,
-            showSelectedLabels: false,
-            showUnselectedLabels: false,
-            selectedLabelStyle: TextStyleData.selectedNavLbl,
-            unselectedLabelStyle: TextStyleData.unSelectedNavLbl,
+          child: Consumer<ChatPro>(
+            builder: (_, chatPro, _) {
+              final unread = chatPro.totalUnreadCount;
+              return BottomNavigationBar(
+                onTap: _onItemTapped,
+                elevation: 0,
+                currentIndex: pageNum,
+                items: NavWidgets.tabItems(unreadCount: unread),
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: AppColors.black,
+                selectedItemColor: AppColors.white,
+                unselectedItemColor: AppColors.white,
+                showSelectedLabels: false,
+                showUnselectedLabels: false,
+                selectedLabelStyle: TextStyleData.selectedNavLbl,
+                unselectedLabelStyle: TextStyleData.unSelectedNavLbl,
+              );
+            },
           ),
         ),
       ),

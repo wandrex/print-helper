@@ -19,6 +19,7 @@ class ReverbSocketService {
   StreamSubscription? _messageStatusSub;
   StreamSubscription? _userStatusSub;
   StreamSubscription? _conversationCreatedSub;
+  StreamSubscription? _unreadCountUpdatedSub;
 
   bool _isConnected = false;
   final String? currentUserId;
@@ -41,6 +42,8 @@ class ReverbSocketService {
   onGroupMemberAdded; // For group member added
   final void Function(Map<String, dynamic>)?
   onGroupMemberRemoved; // For group member removed
+  final void Function(Map<String, dynamic>)?
+  onUnreadCountUpdated; // For total unread counter badges
 
   final VoidCallback onConnected;
 
@@ -54,6 +57,7 @@ class ReverbSocketService {
     this.onConversationCreated,
     this.onGroupMemberAdded,
     this.onGroupMemberRemoved,
+    this.onUnreadCountUpdated,
     this.currentUserId,
   });
 
@@ -117,6 +121,17 @@ class ReverbSocketService {
 
             logData(title: '🆕 CONVERSATION CREATED:', data: data.toString());
             onConversationCreated!(data);
+          });
+
+      // EVENT: unread.count.updated (total unread badge)
+      _unreadCountUpdatedSub = _userChannel!
+          .bind('unread.count.updated')
+          .listen((event) {
+            if (onUnreadCountUpdated == null || !context.mounted) return;
+            final data = _safeJsonDecode(event.data);
+            if (data == null) return;
+            logData(title: '🔔 UNREAD COUNT UPDATED:', data: data.toString());
+            onUnreadCountUpdated!(data);
           });
 
       // EVENT: group.member.added
@@ -203,7 +218,7 @@ class ReverbSocketService {
         (event) {
           final data = _safeJsonDecode(event.data);
           if (data != null && onMessageDeleted != null) {
-            debugPrint("🗑️ MESSAGE DELETED: $data");
+            debugPrint("MESSAGE DELETED: $data");
             onMessageDeleted!(data);
           }
         },
@@ -214,7 +229,7 @@ class ReverbSocketService {
       ) {
         final data = _safeJsonDecode(event.data);
         if (data != null && onMessageStatusUpdated != null) {
-          debugPrint("👀 MESSAGE STATUS UPDATE: $data");
+          debugPrint("MESSAGE STATUS UPDATE: $data");
           onMessageStatusUpdated!(data);
         }
       });
@@ -224,7 +239,7 @@ class ReverbSocketService {
       ) {
         final data = _safeJsonDecode(event.data);
         if (data != null && onUserStatusChanged != null) {
-          debugPrint("🟢 USER STATUS: $data");
+          debugPrint("USER STATUS: $data");
           onUserStatusChanged!(data);
         }
       });
@@ -269,6 +284,7 @@ class ReverbSocketService {
     _messageStatusSub?.cancel();
     _userStatusSub?.cancel();
     _conversationCreatedSub?.cancel();
+    _unreadCountUpdatedSub?.cancel();
     _conversationChannel?.unsubscribe();
     _userChannel?.unsubscribe();
     try {

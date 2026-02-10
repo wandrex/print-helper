@@ -1,5 +1,3 @@
-
-
 class ChatConversation {
   final int id;
   final String type; // private | group
@@ -8,6 +6,7 @@ class ChatConversation {
   final List<ChatParticipant> participants;
   final ChatLatestMessage? latestMessage;
   int unreadCount;
+  final int? totalUnreadCount;
   final DateTime updatedAt;
   final bool isDefault;
   final OtherParticipant? otherParticipants;
@@ -20,12 +19,16 @@ class ChatConversation {
     this.latestMessage,
     required this.image,
     this.otherParticipants,
+    this.totalUnreadCount,
     required this.unreadCount,
     required this.updatedAt,
     required this.isDefault,
   });
 
-  factory ChatConversation.fromJson(Map<String, dynamic> json) {
+  factory ChatConversation.fromJson(
+    Map<String, dynamic> json, {
+    int? totalUnreadCount,
+  }) {
     return ChatConversation(
       id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
       type: json['type'] ?? 'private',
@@ -37,6 +40,7 @@ class ChatConversation {
           ? ChatLatestMessage.fromJson(json['latest_message'])
           : null,
       unreadCount: json['unread_count'] ?? 0,
+      totalUnreadCount: totalUnreadCount,
       otherParticipants: json['other_participant'] != null
           ? OtherParticipant.fromJson(json['other_participant'])
           : null,
@@ -144,6 +148,41 @@ class ChatLatestMessage {
       userId: user != null && user['id'] != null ? user['id'] as int : null,
       userName: user != null ? user['name'] : null,
       userLastName: user != null ? user['last_name'] : null,
+    );
+  }
+}
+
+class CallFromNumber {
+  final String number;
+  final String label;
+  final String? context;
+  final String? type;
+  final bool isTwilio;
+  final String? display;
+  final String? lineType;
+  final String? logo;
+
+  CallFromNumber({
+    required this.number,
+    required this.label,
+    this.context,
+    this.type,
+    required this.isTwilio,
+    this.display,
+    this.lineType,
+    this.logo,
+  });
+
+  factory CallFromNumber.fromJson(Map<String, dynamic> json) {
+    return CallFromNumber(
+      number: json['number']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      context: json['context']?.toString(),
+      type: json['type']?.toString(),
+      isTwilio: json['is_twilio'] == true,
+      display: json['display']?.toString(),
+      lineType: json['line_type']?.toString(),
+      logo: json['logo']?.toString(),
     );
   }
 }

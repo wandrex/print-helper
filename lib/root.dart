@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:print_helper/splash/splash.dart';
-
 import 'constants/colors.dart';
 import 'constants/strings.dart';
 import 'services/navigation_service.dart';

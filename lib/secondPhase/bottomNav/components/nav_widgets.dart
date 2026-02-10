@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:print_helper/admin/chat/chat_list.dart';
+import 'package:print_helper/admin/chat/view/chat_list.dart';
 import 'package:print_helper/secondPhase/projects/projects.dart';
 
 import '../../../constants/colors.dart';

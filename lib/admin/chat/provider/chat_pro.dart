@@ -6,19 +6,21 @@ import 'package:flutter/material.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:http/http.dart' as http;
 import 'package:print_helper/models/search_modals.dart';
+import 'package:print_helper/models/twilio_models.dart';
 import 'package:print_helper/services/helpers.dart';
+import 'package:print_helper/services/api_service.dart';
 import 'package:print_helper/widgets/toasts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat_group_model.dart';
 import '../models/chat_models.dart';
-import '../models/profile_models.dart';
-import '../services/api_routes.dart';
-import '../services/push_notification.dart';
-import '../services/reverb_service.dart';
-import '../services/voice_recorder_service.dart';
-import '../utils/console_util.dart';
-import '../widgets/loaders.dart';
+import '../../../models/profile_models.dart';
+import '../../../services/api_routes.dart';
+import '../service/chat_push_notify.dart';
+import '../service/reverb_service.dart';
+import '../service/voice_recorder_service.dart';
+import '../../../utils/console_util.dart';
+import '../../../widgets/loaders.dart';
 
 class ChatPro extends ChangeNotifier {
   bool isConnecting = true;
@@ -27,6 +29,7 @@ class ChatPro extends ChangeNotifier {
   bool isOtherUserTyping = false;
   bool isChatScreenOpen = false;
   int? currentActiveConversationId;
+  int totalUnreadCount = 0; // Aggregated badge count for nav
   final List<ChatConversation> conversations = [];
   final List<ChatMessage> messages = [];
   ReverbSocketService? _chatListSocket; // Keeps global user events (new chats)
@@ -65,6 +68,24 @@ class ChatPro extends ChangeNotifier {
 
   final VoiceRecorderService _voiceRecorder = VoiceRecorderService();
   bool isRecordingVoice = false;
+
+  // Twilio Numbers
+  List<TwilioCredential> twilioNumbers = [];
+  bool isTwilioLoading = false;
+  bool twilioHasError = false;
+
+  // Twilio Clients with Contacts
+  List<TwilioClient> twilioClients = [];
+  bool isTwilioClientsLoading = false;
+  bool twilioClientsHasError = false;
+
+  // Twilio Staff (Assigned Accounts)
+  List<AssignedAccount> twilioStaff = [];
+  bool isTwilioStaffLoading = false;
+  bool twilioStaffHasError = false;
+  int twilioNumbersRevision = 0;
+  int twilioClientsRevision = 0;
+  int twilioStaffRevision = 0;
   Future<void> startDummyVoiceRecording() async {
     isRecordingVoice = true;
     notifyListeners();
@@ -80,6 +101,92 @@ class ChatPro extends ChangeNotifier {
       "Content-Type": "application/json",
       "Authorization": "Bearer $authToken",
     };
+  }
+
+  Future<String?> getTwilioAccessToken({bool forceRefresh = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString("twilio_access_token");
+    if (!forceRefresh && cached != null && cached.isNotEmpty) {
+      return cached;
+    }
+    try {
+      final headers = await apiHeaders();
+      debugPrint(
+        "Twilio access token request: ${ApiRoutes.baseUrl}${ApiRoutes.twilioAccessToken}",
+      );
+      debugPrint("Twilio access token headers: $headers");
+      final data = await ApiService().getDataFromApi(
+        api: ApiRoutes.twilioAccessToken,
+        headers: headers,
+        showRes: true,
+      );
+      debugPrint("Twilio access token raw response: $data");
+      if (data is Map<String, dynamic>) {
+        final dynamic payload = data["data"] ?? data;
+        debugPrint("Twilio access token payload: $payload");
+        final token = payload is Map<String, dynamic>
+            ? (payload["token"] ?? payload["access_token"])
+            : null;
+        debugPrint("Twilio access token parsed: $token");
+        if (token is String && token.isNotEmpty) {
+          await prefs.setString("twilio_access_token", token);
+          return token;
+        }
+      }
+    } catch (e) {
+      debugPrint("Twilio access token error: $e");
+    }
+    return null;
+  }
+
+  Future<List<CallFromNumber>> fetchCallFromNumbers() async {
+    try {
+      final url = Uri.parse("${ApiRoutes.baseUrl}${ApiRoutes.callFromNumbers}");
+      final headers = await apiHeaders();
+      debugPrint("call-from-numbers url: $url");
+      debugPrint("call-from-numbers headers: $headers");
+      final res = await http.get(url, headers: headers);
+      debugPrint("call-from-numbers status: ${res.statusCode}");
+      debugPrint("call-from-numbers body: ${res.body}");
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true && data['data'] != null) {
+          final List<dynamic> numbers = data['data']['numbers'] ?? [];
+          return numbers
+              .map((e) => CallFromNumber.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("fetchCallFromNumbers error: $e");
+    }
+    return [];
+  }
+
+  Future<List<CallFromNumber>> fetchUserTwilioNumbers(int userId) async {
+    try {
+      final url = Uri.parse(
+        "${ApiRoutes.baseUrl}${ApiRoutes.userTwilioNumbers(userId)}",
+      );
+      final headers = await apiHeaders();
+      debugPrint("user-twilio-numbers url: $url");
+      debugPrint("user-twilio-numbers headers: $headers");
+      final res = await http.get(url, headers: headers);
+      debugPrint("user-twilio-numbers status: ${res.statusCode}");
+      debugPrint("user-twilio-numbers body: ${res.body}");
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true && data['data'] != null) {
+          final List<dynamic> numbers = data['data']['numbers'] ?? [];
+          return numbers
+              .map((e) => CallFromNumber.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("fetchUserTwilioNumbers error: $e");
+    }
+    return [];
   }
 
   /// ---------------- INIT CHAT LIST SOCKET ----------------
@@ -118,6 +225,9 @@ class ChatPro extends ChangeNotifier {
       },
       onGroupMemberRemoved: (data) {
         _handleGroupMemberRemoved(data);
+      },
+      onUnreadCountUpdated: (data) {
+        _handleUnreadCountUpdated(data);
       },
     );
     _chatListSocket!.connectUserChannel(
@@ -336,6 +446,7 @@ class ChatPro extends ChangeNotifier {
       debugPrint("Error handling group member added: $e");
     }
   }
+
   // 7. ✅ Handle Group Member Removed
   void _handleGroupMemberRemoved(Map<String, dynamic> data) async {
     try {
@@ -505,6 +616,13 @@ class ChatPro extends ChangeNotifier {
 
     conversations.insert(insertIndex, updatedConversation);
 
+    // Keep aggregated unread badge in sync for nav
+    if (senderId.toString() != currentUserId && existingIndex == -1) {
+      totalUnreadCount = totalUnreadCount + 1;
+    }
+
+    _recomputeTotalUnreadFromList();
+
     /// Show notification only for new incoming messages
     if (senderId.toString() != currentUserId && existingIndex == -1) {
       NotificationService.instance.showChatNotification(
@@ -530,15 +648,39 @@ class ChatPro extends ChangeNotifier {
         throw Exception("HTTP ${res.statusCode}");
       }
       final decoded = jsonDecode(res.body);
+      totalUnreadCount = decoded['total_unread_count'] ?? 0;
+      debugPrint("totalUnreadCount: $totalUnreadCount");
       final List list = decoded['data'] ?? [];
+
       conversations
         ..clear()
-        ..addAll(list.map((e) => ChatConversation.fromJson(e)));
+        ..addAll(
+          list.map(
+            (e) => ChatConversation.fromJson(
+              e,
+              totalUnreadCount: totalUnreadCount,
+            ),
+          ),
+        );
+
+      _recomputeTotalUnreadFromList();
     } catch (e) {
       debugPrint("loadConversations error: $e");
     } finally {
       Loaders.hide();
       notifyListeners();
+    }
+  }
+
+  void _handleUnreadCountUpdated(Map<String, dynamic> data) {
+    try {
+      final dynamic raw =
+          data['total_unread_count'] ?? data['count'] ?? data['unread_count'];
+      final int parsed = int.tryParse(raw?.toString() ?? '') ?? 0;
+      totalUnreadCount = parsed;
+      notifyListeners();
+    } catch (e) {
+      debugPrint("_handleUnreadCountUpdated error: $e");
     }
   }
 
@@ -841,7 +983,11 @@ class ChatPro extends ChangeNotifier {
       if (res.statusCode == 200) {
         final index = conversations.indexWhere((c) => c.id == conversationId);
         if (index != -1) {
+          final int unreadBefore = conversations[index].unreadCount;
+          totalUnreadCount = totalUnreadCount - unreadBefore;
+          if (totalUnreadCount < 0) totalUnreadCount = 0;
           conversations[index].unreadCount = 0;
+          _recomputeTotalUnreadFromList();
           notifyListeners();
         }
         debugPrint("Conversation $conversationId marked as read");
@@ -851,6 +997,14 @@ class ChatPro extends ChangeNotifier {
     } catch (e) {
       debugPrint(" markConversationAsRead error: $e");
     }
+  }
+
+  void _recomputeTotalUnreadFromList() {
+    final int sum = conversations.fold<int>(
+      0,
+      (acc, c) => acc + (c.unreadCount),
+    );
+    totalUnreadCount = sum;
   }
 
   Future<bool> createGroup({
@@ -1566,6 +1720,172 @@ class ChatPro extends ChangeNotifier {
       }
     } finally {
       Loaders.hide();
+    }
+  }
+
+  /// ---------------- FETCH TWILIO NUMBERS ----------------
+  Future<void> fetchTwilioNumbers() async {
+    isTwilioLoading = true;
+    twilioHasError = false;
+    notifyListeners();
+    try {
+      final res = await http.get(
+        Uri.parse("${ApiRoutes.baseUrl}${ApiRoutes.twilioNumbers}"),
+        headers: await apiHeaders(),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true && data['data'] != null) {
+          final List<dynamic> numbersData = data['data']['numbers'] ?? [];
+          twilioNumbers = numbersData
+              .map((json) => TwilioCredential.fromJson(json))
+              .toList();
+          twilioNumbersRevision++;
+          isTwilioLoading = false;
+          twilioHasError = false;
+        } else {
+          twilioHasError = true;
+          isTwilioLoading = false;
+          showToast(
+            message: data['message'] ?? 'Failed to load Twilio numbers',
+          );
+        }
+      } else {
+        twilioHasError = true;
+        isTwilioLoading = false;
+        showToast(message: 'Error: ${res.statusCode}');
+      }
+    } catch (e) {
+      twilioHasError = true;
+      isTwilioLoading = false;
+      showToast(message: 'Failed to fetch Twilio numbers');
+      debugPrint('Error fetching Twilio numbers: $e');
+    }
+    notifyListeners();
+  }
+
+  /// ---------------- FETCH TWILIO CLIENTS WITH CONTACTS ----------------
+  Future<void> fetchTwilioClientsWithContacts() async {
+    isTwilioClientsLoading = true;
+    twilioClientsHasError = false;
+    notifyListeners();
+
+    try {
+      final res = await http.get(
+        Uri.parse("${ApiRoutes.baseUrl}${ApiRoutes.twilioClientsWithContacts}"),
+        headers: await apiHeaders(),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true && data['data'] != null) {
+          final List<dynamic> clientsData = data['data']['clients'] ?? [];
+          twilioClients = clientsData
+              .map((json) => TwilioClient.fromJson(json))
+              .toList();
+          twilioClientsRevision++;
+          isTwilioClientsLoading = false;
+          twilioClientsHasError = false;
+        } else {
+          twilioClientsHasError = true;
+          isTwilioClientsLoading = false;
+          showToast(message: data['message'] ?? 'Failed to load clients');
+        }
+      } else {
+        twilioClientsHasError = true;
+        isTwilioClientsLoading = false;
+        showToast(message: 'Error: ${res.statusCode}');
+      }
+    } catch (e) {
+      twilioClientsHasError = true;
+      isTwilioClientsLoading = false;
+      showToast(message: 'Failed to fetch clients');
+      debugPrint('Error fetching Twilio clients: $e');
+    }
+    notifyListeners();
+  }
+
+  /// ---------------- FETCH TWILIO STAFF (ASSIGNED ACCOUNTS) ----------------
+  Future<void> fetchTwilioStaff() async {
+    isTwilioStaffLoading = true;
+    twilioStaffHasError = false;
+    notifyListeners();
+
+    try {
+      final res = await http.get(
+        Uri.parse("${ApiRoutes.baseUrl}${ApiRoutes.twilioStaff}"),
+        headers: await apiHeaders(),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        debugPrint("data: $data");
+        if (data['success'] == true && data['data'] != null) {
+          final List<dynamic> staffData = data['data']['staff'] ?? [];
+          twilioStaff = staffData
+              .map((json) => AssignedAccount.fromJson(json))
+              .toList();
+          twilioStaffRevision++;
+          debugPrint("twilioStaff: $twilioStaff");
+          isTwilioStaffLoading = false;
+          twilioStaffHasError = false;
+        } else {
+          twilioStaffHasError = true;
+          isTwilioStaffLoading = false;
+          showToast(message: data['message'] ?? 'Failed to load staff');
+        }
+      } else {
+        twilioStaffHasError = true;
+        isTwilioStaffLoading = false;
+        showToast(message: 'Error: ${res.statusCode}');
+      }
+    } catch (e) {
+      twilioStaffHasError = true;
+      isTwilioStaffLoading = false;
+      showToast(message: 'Failed to fetch staff');
+      debugPrint('Error fetching twilio staff: $e');
+    }
+    notifyListeners();
+  }
+
+  /// ---------------- UPDATE TWILIO NUMBER ASSIGNMENTS ----------------
+  Future<bool> updateTwilioNumberAssignments({
+    required int numberId,
+    required int? clientId,
+    required List<int> contactIds,
+    required List<int> accountIds,
+  }) async {
+    try {
+      final url = Uri.parse(
+        "${ApiRoutes.baseUrl}${ApiRoutes.twilioNumbers}/$numberId",
+      );
+      debugPrint('updating Twilio number: $url');
+      final payload = {
+        "client_id": clientId,
+        "contact_ids": contactIds,
+        "account_ids": accountIds,
+      };
+      debugPrint('updating Twilio payload: $payload');
+
+      final res = await http.put(
+        url,
+        headers: await apiHeaders(),
+        body: jsonEncode(payload),
+      );
+      debugPrint('updating Twilio body: ${res.body}');
+
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        return true;
+      }
+
+      final data = jsonDecode(res.body);
+      debugPrint('updating Twilio number: $data');
+      showToast(message: data['message'] ?? 'Failed to update number');
+      return false;
+    } catch (e) {
+      debugPrint('Error updating Twilio number: $e');
+      showToast(message: 'Failed to update number');
+      return false;
     }
   }
 }

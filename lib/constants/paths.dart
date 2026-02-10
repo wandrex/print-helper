@@ -61,6 +61,6 @@ class Paths {
   static const String webSite = '';
   // TODO : change this urls both
   static const String playStoreUrl =
-      'https://play.google.com/store/apps/details?id=com.pscaitutor.in';
+      'https://play.google.com/store/apps/details?id=com..in';
   static const String appStoreUrl = 'https://apps.apple.com/us/app/';
 }

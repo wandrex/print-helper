@@ -1,18 +1,21 @@
 // import 'package:easy_localization/easy_localization.dart';
 import 'dart:io';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:print_helper/providers/admin_pro.dart';
 import 'package:print_helper/providers/cust_pro.dart';
 import 'package:print_helper/providers/files_pro.dart';
 import 'package:print_helper/providers/project_pro.dart';
 import 'package:print_helper/providers/setting_pro.dart';
-import 'package:print_helper/services/push_notification.dart';
+import 'package:print_helper/admin/chat/service/chat_push_notify.dart';
 import 'package:print_helper/utils/no_ssl_http_override.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'providers/auth_pro.dart';
-import 'providers/chat_pro.dart';
+import 'admin/chat/provider/chat_pro.dart';
 import 'providers/client_pro.dart';
 import 'providers/lang_pro.dart';
 import 'providers/user_pro.dart';
@@ -24,10 +27,28 @@ Future<void> main() async {
   await NotificationService.instance.init();
   HttpOverrides.global = MyHttpOverrides();
   // await EasyLocalization.ensureInitialized();
-  // await Firebase.initializeApp();
+  await Firebase.initializeApp();
+  await _initFirebaseMessaging();
   SysChromes.setSystemChromes();
   // runApp(localize());
   runApp(multiProviders());
+}
+
+Future<void> _initFirebaseMessaging() async {
+  final messaging = FirebaseMessaging.instance;
+  await messaging.requestPermission();
+
+  final prefs = await SharedPreferences.getInstance();
+  final token = await messaging.getToken();
+  if (token != null && token.isNotEmpty) {
+    await prefs.setString("fcm_token", token);
+  }
+
+  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+    if (newToken.isNotEmpty) {
+      await prefs.setString("fcm_token", newToken);
+    }
+  });
 }
 
 // EasyLocalization localize() {
