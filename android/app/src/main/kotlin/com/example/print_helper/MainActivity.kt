@@ -1,4 +1,4 @@
-package com.example.print_helper
+package com.printhelper.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -47,6 +47,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>remote-notification</string>
+		<string>processing</string>
+	</array>
 
 
 </dict>

@@ -8,7 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_pro.dart';
-import '../providers/chat_pro.dart';
+import '../admin/chat/provider/chat_pro.dart';
 import '../providers/client_pro.dart';
 import '../providers/lang_pro.dart';
 import '../providers/user_pro.dart';

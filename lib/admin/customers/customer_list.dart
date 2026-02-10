@@ -370,25 +370,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               clipBehavior: Clip.none,
               children: [
                 IconButton(
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => FractionallySizedBox(
-                        heightFactor: 0.90,
-                        child: FilterSheet(
-                          initialFilters: pro.customerFilters,
-                          isFromStaff: false,
-                          isFromClient: true,
-                        ),
-                      ),
-                    ).then((filters) {
-                      if (filters != null && filters is Map<String, dynamic>) {
-                        pro.applyCustFilters(filters, context, widget.id);
-                      }
-                    });
-                  },
+                  onPressed: () => _filterBottomSheet(context, pro),
                   icon: ImageWidget(image: Paths.filter, width: 20),
                 ),
                 if (count > 0)
@@ -423,6 +405,26 @@ class _CustomersScreenState extends State<CustomersScreen> {
         ),
       ],
     );
+  }
+
+  void _filterBottomSheet(dynamic context, CustomerPro pro) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.90,
+        child: FilterSheet(
+          initialFilters: pro.customerFilters,
+          isFromStaff: false,
+          isFromClient: true,
+        ),
+      ),
+    ).then((filters) {
+      if (filters != null && filters is Map<String, dynamic>) {
+        pro.applyCustFilters(filters, context, widget.id);
+      }
+    });
   }
 
   Widget _customerCard(CustomerModel item, CustomerPro provider) {

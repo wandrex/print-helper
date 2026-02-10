@@ -10,6 +10,7 @@ import '../../widgets/spacers.dart';
 import '../../widgets/loaders.dart';
 import '../../constants/colors.dart';
 import '../../constants/paths.dart';
+import 'twilio_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -88,22 +89,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Expanded(
                   child: Container(
                     padding: EdgeInsets.symmetric(
-                      horizontal: 12.w,
-                      vertical: 10.w,
+                      horizontal: 0.w,
+                      vertical: 0.w,
                     ),
                     color: Colors.white,
-                    child: ListView.builder(
-                      padding: EdgeInsets.only(
-                        left: 2.w,
-                        right: 2.w,
-                        top: 10.h,
-                      ),
-                      itemCount: pro.sections.length,
-                      itemBuilder: (context, si) {
-                        final section = pro.sections[si];
-                        return _buildSection(section, pro);
-                      },
-                    ),
+                    child: _activeTab == 1
+                        ? const TwilioCredentials()
+                        : ListView.builder(
+                            padding: EdgeInsets.only(
+                              left: 12.w,
+                              right: 12.w,
+                              top: 10.h,
+                            ),
+                            itemCount: pro.sections.length,
+                            itemBuilder: (context, si) {
+                              final section = pro.sections[si];
+                              return _buildSection(section, pro);
+                            },
+                          ),
                   ),
                 ),
               ],
@@ -125,7 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             _tabItem("Accounts", index: 0),
             Spacers.sbw10(),
-            _tabItem("Other", index: 1),
+            _tabItem("Twilio", index: 1),
             Spacers.sbw10(),
             _tabItem("Other", index: 2),
           ],

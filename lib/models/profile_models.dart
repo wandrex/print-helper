@@ -35,6 +35,7 @@ class ProfileData {
   final int projectsCount;
   final int filesCount;
   final int contactsCount;
+  final List<Recording> recordings;
 
   ProfileData({
     required this.id,
@@ -59,6 +60,7 @@ class ProfileData {
     required this.projectsCount,
     required this.filesCount,
     required this.contactsCount,
+    required this.recordings,
   });
 
   factory ProfileData.fromJson(Map<String, dynamic> json) {
@@ -74,7 +76,9 @@ class ProfileData {
       role: json['role'] ?? 0,
       isOnline: json['is_online'] ?? false,
       lastSeenAt: json['last_seen_at'],
-      createdAt: DateTime.parse(json['created_at'] ?? ''),
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+          DateTime.now(),
       customer: json['customer'] != null
           ? Customer.fromJson(json['customer'])
           : null,
@@ -87,6 +91,49 @@ class ProfileData {
       projectsCount: json['projects_count'] ?? 0,
       filesCount: json['files_count'] ?? 0,
       contactsCount: json['contacts_count'] ?? 0,
+      recordings: (json['recordings'] as List<dynamic>? ?? [])
+          .map((e) => Recording.fromJson(e))
+          .toList(),
+    );
+  }
+}
+
+class Recording {
+  final int id;
+  final String title;
+  final String duration; // Keep raw string for display/parsing
+  final String voicePath;
+  final String voiceUrl;
+  final DateTime? recordedAt;
+  final String? timeLabel;
+  final int? conversationId;
+  final int? messageId;
+
+  Recording({
+    required this.id,
+    required this.title,
+    required this.duration,
+    required this.voicePath,
+    required this.voiceUrl,
+    required this.recordedAt,
+    required this.timeLabel,
+    required this.conversationId,
+    required this.messageId,
+  });
+
+  factory Recording.fromJson(Map<String, dynamic> json) {
+    return Recording(
+      id: json['id'] ?? 0,
+      title: json['title'] ?? 'Voice message',
+      duration: json['duration'] ?? '00:00',
+      voicePath: json['voice_path'] ?? '',
+      voiceUrl: json['voice_url'] ?? '',
+      recordedAt: json['recorded_at'] != null
+          ? DateTime.tryParse(json['recorded_at'].toString())
+          : null,
+      timeLabel: json['time_label'],
+      conversationId: json['conversation_id'],
+      messageId: json['message_id'],
     );
   }
 }
