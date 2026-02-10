@@ -193,26 +193,7 @@ class _ClientScreenState extends State<ClientScreen> {
               clipBehavior: Clip.none,
               children: [
                 IconButton(
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      barrierColor: Colors.black.withValues(alpha: 0.25),
-                      builder: (_) => FractionallySizedBox(
-                        heightFactor: 0.90,
-                        child: FilterSheet(
-                          initialFilters: pro.clientFilters,
-                          isFromStaff: false,
-                          isFromClient: true,
-                        ),
-                      ),
-                    ).then((filters) {
-                      if (filters != null && filters is Map<String, dynamic>) {
-                        pro.applyClientFilters(filters, context);
-                      }
-                    });
-                  },
+                  onPressed: () => _filterBottomSheet(context, pro),
                   icon: ImageWidget(image: Paths.filter, width: 20),
                 ),
                 if (count > 0)
@@ -247,6 +228,27 @@ class _ClientScreenState extends State<ClientScreen> {
         ),
       ],
     );
+  }
+
+  void _filterBottomSheet(dynamic context, ClientPro pro) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.25),
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.90,
+        child: FilterSheet(
+          initialFilters: pro.clientFilters,
+          isFromStaff: false,
+          isFromClient: true,
+        ),
+      ),
+    ).then((filters) {
+      if (filters != null && filters is Map<String, dynamic>) {
+        pro.applyClientFilters(filters, context);
+      }
+    });
   }
 
   Widget _clientCard(
